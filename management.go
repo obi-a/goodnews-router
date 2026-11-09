@@ -24,6 +24,9 @@ func (r *Runtime) ManagementHandler() http.Handler {
 		w.WriteHeader(status)
 		_ = json.NewEncoder(w).Encode(value)
 	}
+	mux.HandleFunc("/v1/status", func(w http.ResponseWriter, req *http.Request) {
+		write(w, req, r.Info, http.StatusOK)
+	})
 	mux.HandleFunc("/v1/interfaces", func(w http.ResponseWriter, req *http.Request) {
 		write(w, req, struct {
 			Interfaces  []Interface     `json:"interfaces"`

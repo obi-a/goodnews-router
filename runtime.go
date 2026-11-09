@@ -28,19 +28,21 @@ type InterfaceCounters struct {
 }
 
 type CounterSnapshot struct {
-	Kind        string                       `json:"kind"`
-	RouterID    string                       `json:"router_id"`
-	Timestamp   time.Time                    `json:"timestamp"`
-	Received    uint64                       `json:"received"`
-	Transmitted uint64                       `json:"transmitted"`
-	Delivered   uint64                       `json:"delivered"`
-	Dropped     uint64                       `json:"dropped"`
-	DropReasons map[string]uint64            `json:"drop_reasons"`
-	Interfaces  map[string]InterfaceCounters `json:"interfaces"`
+	Kind          string                       `json:"kind"`
+	RouterID      string                       `json:"router_id"`
+	Timestamp     time.Time                    `json:"timestamp"`
+	AfterPacketID *uint64                      `json:"after_packet_id,omitempty"`
+	Received      uint64                       `json:"received"`
+	Transmitted   uint64                       `json:"transmitted"`
+	Delivered     uint64                       `json:"delivered"`
+	Dropped       uint64                       `json:"dropped"`
+	DropReasons   map[string]uint64            `json:"drop_reasons"`
+	Interfaces    map[string]InterfaceCounters `json:"interfaces"`
 }
 
 type Runtime struct {
 	Engine   *Engine
+	Info     RunInfo
 	links    map[string]Link
 	observer PacketObserver
 	nextID   atomic.Uint64
@@ -59,10 +61,9 @@ func NewRuntime(engine *Engine, links map[string]Link, observer PacketObserver) 
 		}
 		owned[iface.Name] = links[iface.Name]
 	}
-	r := &Runtime{Engine: engine, links: owned, observer: observer,
-		counters: CounterSnapshot{Kind: "counters", RouterID: engine.Config.RouterID, DropReasons: map[string]uint64{}, Interfaces: map[string]InterfaceCounters{}}}
-	for name := range owned {
-		r.counters.Interfaces[name] = InterfaceCounters{}
+	r := &Runtime{Engine: engine, links: owned, observer: observer, counters: initialCounters(engine.Config)}
+	if history, ok := observer.(interface{ RunInfo() RunInfo }); ok {
+		r.Info = history.RunInfo()
 	}
 	return r, nil
 }
@@ -142,6 +143,11 @@ func (r *Runtime) process(ingress string, packet []byte) error {
 		return fmt.Errorf("ingress capture: %w", err)
 	}
 	d := r.Engine.Process(ingress, packet)
+	if history, ok := r.observer.(interface{ RecordFIB(*Table) error }); ok {
+		if err := history.RecordFIB(d.Table); err != nil {
+			return fmt.Errorf("FIB snapshot: %w", err)
+		}
+	}
 	d.Trace.PacketID, d.Trace.Timestamp = r.nextID.Add(1), at
 	r.mu.Lock()
 	r.counters.Received++
@@ -168,7 +174,7 @@ func (r *Runtime) process(ingress string, packet []byte) error {
 			parent := d.Trace.PacketID
 			record := TraceRecord{Kind: "packet", RouterID: r.Engine.Config.RouterID, PacketID: r.nextID.Add(1), ParentID: &parent,
 				Timestamp: time.Now().UTC(), Egress: output.Interface, Length: len(output.Packet), Source: &h.Source, Destination: &h.Destination,
-				Protocol: &h.Protocol, TTLAfter: &h.TTL, FIBVersion: d.Trace.FIBVersion, Matches: output.Matches, Winner: &output.Route, Action: "generated"}
+				Protocol: &h.Protocol, ICMP: DescribeICMP(h), TTLAfter: &h.TTL, FIBVersion: d.Trace.FIBVersion, Matches: output.Matches, Winner: &output.Route, Action: "generated"}
 			if err != nil {
 				record.Action, record.DropReason, record.Error = "drop", "send_failed", err.Error()
 			}
@@ -199,6 +205,10 @@ func (r *Runtime) process(ingress string, packet []byte) error {
 			return fmt.Errorf("generated trace: %w", err)
 		}
 	}
+	r.mu.Lock()
+	id := d.Trace.PacketID
+	r.counters.AfterPacketID = &id
+	r.mu.Unlock()
 	if err := r.observer.Counters(r.Snapshot()); err != nil {
 		return fmt.Errorf("counter export: %w", err)
 	}

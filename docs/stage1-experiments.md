@@ -1,8 +1,12 @@
 # Stage 1: route and protection experiments
 
-Start with the [main lab guide](stage1.md). These experiments use its two Bash
+Start with the [main lab guide](stage1.md). These experiments use its two
 terminals, existing namespaces, built binary, and `RUN_DIR` capture variable.
 Keep the namespaces up and stop the router in Terminal A before each restart.
+
+Use Fish or Bash. Shared `sh` blocks work in both shells; choose your shell's
+block where a Fish or Bash label is shown. The multiline `python3 -c` commands
+also work in both shells; paste the complete block, including its closing quote.
 
 Each experiment creates a separate configuration from `lab/stage1.json`. The
 supplied configuration stays unchanged. Predict the result before sending
@@ -14,18 +18,18 @@ Stop the router with **Ctrl-C in Terminal A**. In Terminal B, create a config
 with three overlapping routes:
 
 ```sh
-python3 - <<'PY'
+python3 -c '
 import json
 from pathlib import Path
 
-config = json.loads(Path('lab/stage1.json').read_text())
-config['routes'] = [
-    {'prefix': '10.0.0.0/8', 'interface': 'left'},
-    {'prefix': '10.20.0.0/16', 'interface': 'left'},
-    {'prefix': '10.20.30.0/24', 'interface': 'right'},
+config = json.loads(Path("lab/stage1.json").read_text())
+config["routes"] = [
+    {"prefix": "10.0.0.0/8", "interface": "left"},
+    {"prefix": "10.20.0.0/16", "interface": "left"},
+    {"prefix": "10.20.30.0/24", "interface": "right"},
 ]
-Path('/tmp/goodnews-stage1-routes.json').write_text(json.dumps(config, indent=2))
-PY
+Path("/tmp/goodnews-stage1-routes.json").write_text(json.dumps(config, indent=2))
+'
 ./bin/goodnews check --config /tmp/goodnews-stage1-routes.json
 ```
 
@@ -38,11 +42,25 @@ In Terminal A:
 sudo ip netns exec gn-r1 ./bin/goodnews run --config /tmp/goodnews-stage1-routes.json
 ```
 
-In Terminal B, paste the new artifact directory printed in Terminal A, then
-inspect the table and send three lookup probes:
+In Terminal B, save the new artifact directory printed in Terminal A. Run the
+command for your shell, keeping `RUN_DIR` as written, then paste the directory
+when prompted:
+
+**Fish:**
+
+```fish
+read -P 'New artifact directory from Terminal A: ' RUN_DIR
+```
+
+**Bash:**
+
+```bash
+read -r -p 'New artifact directory from Terminal A: ' RUN_DIR
+```
+
+Then inspect the table and send three lookup probes (both shells):
 
 ```sh
-read -r -p 'New artifact directory from Terminal A: ' RUN_DIR
 sudo ./bin/goodnews show routes --socket /run/goodnews-lab-stage1/r1.sock
 sudo ip netns exec gn-h1 ./bin/goodnews craft --interface gn0 --dst 10.99.0.9
 sudo ip netns exec gn-h1 ./bin/goodnews craft --interface gn0 --dst 10.20.99.9
@@ -76,14 +94,14 @@ when broader matches point left. Stop this router before the next experiment.
 In Terminal B, create a config that disables TTL decrement:
 
 ```sh
-python3 - <<'PY'
+python3 -c '
 import json
 from pathlib import Path
 
-config = json.loads(Path('lab/stage1.json').read_text())
-config['protections']['decrement_ttl'] = False
-Path('/tmp/goodnews-stage1-no-ttl.json').write_text(json.dumps(config, indent=2))
-PY
+config = json.loads(Path("lab/stage1.json").read_text())
+config["protections"]["decrement_ttl"] = False
+Path("/tmp/goodnews-stage1-no-ttl.json").write_text(json.dumps(config, indent=2))
+'
 ./bin/goodnews check --config /tmp/goodnews-stage1-no-ttl.json
 ```
 
@@ -93,10 +111,24 @@ In Terminal A:
 sudo ip netns exec gn-r1 ./bin/goodnews run --config /tmp/goodnews-stage1-no-ttl.json
 ```
 
-In Terminal B:
+In Terminal B, save the new artifact directory using your shell's command and
+paste the directory at the prompt:
+
+**Fish:**
+
+```fish
+read -P 'New artifact directory from Terminal A: ' RUN_DIR
+```
+
+**Bash:**
+
+```bash
+read -r -p 'New artifact directory from Terminal A: ' RUN_DIR
+```
+
+Then run in either shell:
 
 ```sh
-read -r -p 'New artifact directory from Terminal A: ' RUN_DIR
 sudo ./bin/goodnews show interfaces --socket /run/goodnews-lab-stage1/r1.sock
 sudo ip netns exec gn-h1 ping -n -c 3 -W 1 10.0.1.2
 sudo cat "$RUN_DIR/right.pcap" | tcpdump -nn -vv -r - 'icmp and src host 10.0.0.2 and dst host 10.0.1.2'
@@ -114,14 +146,14 @@ Stop the router before continuing.
 In Terminal B:
 
 ```sh
-python3 - <<'PY'
+python3 -c '
 import json
 from pathlib import Path
 
-config = json.loads(Path('lab/stage1.json').read_text())
-config['protections']['verify_ipv4_checksum'] = False
-Path('/tmp/goodnews-stage1-no-checksum.json').write_text(json.dumps(config, indent=2))
-PY
+config = json.loads(Path("lab/stage1.json").read_text())
+config["protections"]["verify_ipv4_checksum"] = False
+Path("/tmp/goodnews-stage1-no-checksum.json").write_text(json.dumps(config, indent=2))
+'
 ./bin/goodnews check --config /tmp/goodnews-stage1-no-checksum.json
 ```
 
@@ -131,10 +163,24 @@ In Terminal A:
 sudo ip netns exec gn-r1 ./bin/goodnews run --config /tmp/goodnews-stage1-no-checksum.json
 ```
 
-In Terminal B:
+In Terminal B, save the new artifact directory using your shell's command and
+paste the directory at the prompt:
+
+**Fish:**
+
+```fish
+read -P 'New artifact directory from Terminal A: ' RUN_DIR
+```
+
+**Bash:**
+
+```bash
+read -r -p 'New artifact directory from Terminal A: ' RUN_DIR
+```
+
+Then run in either shell:
 
 ```sh
-read -r -p 'New artifact directory from Terminal A: ' RUN_DIR
 sudo ./bin/goodnews show interfaces --socket /run/goodnews-lab-stage1/r1.sock
 sudo ip netns exec gn-h1 ./bin/goodnews craft --interface gn0 --bad-checksum
 sudo ./bin/goodnews show counters --socket /run/goodnews-lab-stage1/r1.sock
@@ -156,6 +202,8 @@ Terminal A:
 sudo ip netns exec gn-r1 ./bin/goodnews run --config lab/stage1.json
 ```
 
-Refresh `RUN_DIR` in Terminal B before inspecting this new run. To finish the
-session instead, keep the router stopped and follow the main guide's
+Refresh `RUN_DIR` in Terminal B using your shell's
+[capture-directory command](stage1.md#save-the-capture-directory) before
+inspecting this new run. To finish the session instead, keep the router stopped
+and follow the main guide's
 [cleanup steps](stage1.md#6-prove-the-router-is-necessary-and-clean-up).

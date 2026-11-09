@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "run_id": "demo",
+  "router_id": "r1",
+  "started_at": "2026-11-09T12:00:00Z",
+  "interfaces": [
+    {
+      "name": "left",
+      "address": "10.0.0.1/24",
+      "mtu": 1500,
+      "driver": "tun",
+      "device": "gn0",
+      "netns": "/run/netns/gn-h1"
+    },
+    {
+      "name": "right",
+      "address": "10.0.1.1/24",
+      "mtu": 1500,
+      "driver": "tun",
+      "device": "gn0",
+      "netns": "/run/netns/gn-h2"
+    }
+  ],
+  "protections": {
+    "verify_ipv4_checksum": true,
+    "decrement_ttl": true
+  }
+}

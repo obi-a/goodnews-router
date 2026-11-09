@@ -21,6 +21,7 @@ import (
 
 	goodnews "github.com/obi-a/goodnews-router"
 	"github.com/obi-a/goodnews-router/drivers"
+	"github.com/obi-a/goodnews-router/internal/dashboard"
 )
 
 func main() {
@@ -32,7 +33,7 @@ func main() {
 
 func command(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: goodnews check|run|show|craft (use COMMAND -h for options)")
+		return fmt.Errorf("usage: goodnews check|run|show|craft|dashboard (use COMMAND -h for options)")
 	}
 	switch args[0] {
 	case "check", "run":
@@ -60,12 +61,49 @@ func command(args []string) error {
 		return show(args[1:])
 	case "craft":
 		return craft(args[1:])
+	case "dashboard":
+		return dashboardCommand(args[1:])
 	case "-h", "--help", "help":
-		fmt.Fprintln(os.Stdout, "usage: goodnews check|run|show|craft (use COMMAND -h for options)")
+		fmt.Fprintln(os.Stdout, "usage: goodnews check|run|show|craft|dashboard (use COMMAND -h for options)")
 		return nil
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func dashboardCommand(args []string) error {
+	fs := flag.NewFlagSet("dashboard", flag.ContinueOnError)
+	config := fs.String("config", "lab/stage1.json", "live router configuration (default when --run is absent)")
+	directory := fs.String("run", "", "saved run directory; does not contact a router")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("unexpected arguments: %v", fs.Args())
+	}
+	configSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "config" {
+			configSet = true
+		}
+	})
+	if configSet && *directory != "" {
+		return fmt.Errorf("dashboard: choose either --config or --run")
+	}
+	options := dashboard.Options{Directory: *directory}
+	if *directory == "" {
+		c, err := goodnews.LoadConfig(*config)
+		if err != nil {
+			return err
+		}
+		options.Socket = c.Observability.Socket
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+	return dashboard.Run(ctx, options)
 }
 
 func run(c goodnews.Config) (err error) {

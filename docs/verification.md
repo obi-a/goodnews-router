@@ -67,3 +67,54 @@ Go's recursive `./...` pattern attempts to enter the root-owned capture
 directories and fails for an unprivileged user. `make check` now selects the
 source packages explicitly: `.`, `./cmd/...`, and `./drivers/...`. Capture
 permissions stay private, and checks can run after a lab without sudo.
+
+## Fish and Bash lab instructions
+
+The guides support Fish and Bash without switching shells. Capture-directory
+prompts are labeled by shell, and configuration examples use shared multiline
+`python3 -c` commands instead of Bash here-documents.
+
+Validated 40 command blocks with each shell's syntax checker. Both prompt
+versions stored the supplied path correctly, including spaces. All three
+configuration examples executed in both shells, produced identical JSON, and
+passed `goodnews check`. Trace filtering also worked in both shells with a
+capture-directory path containing spaces. Local documentation links resolve.
+
+## Terminal dashboard
+
+Implemented `goodnews dashboard` with live run discovery, disk-indexed saved-run
+browsing, historical counters and full forwarding-table versions, ICMP fields,
+packet details and topology. A synthetic demo is included under
+`internal/dashboard/testdata/demo`.
+
+Race-enabled tests, vet and build passed, including the router-worker/recorder/
+Unix-HTTP/dashboard integration test with in-memory links. That test needed to
+run outside the sandbox because the sandbox blocks Unix-socket options; it uses
+no root privileges or network namespaces. Tests cover histories larger than the
+decoded cache, partial/corrupt/truncated logs, missing legacy state, historical
+selection during new activity, generated-response correlations, resize layouts,
+key/mouse parsing, and preserving history across connection changes.
+
+Pseudo-terminal tests verified that quitting and cancellation restore terminal
+settings. A real terminal smoke check also exercised replay, Home, packet
+details, and quit. The full privileged namespace ping/dashboard exercise still
+needs to be run on the Ubuntu lab host. Existing router processes must be
+restarted with the rebuilt binary to produce the new metadata.
+
+After adding the dashboard guide, syntax checking passed for 51 command blocks
+in each of Fish and Bash. Local documentation links resolve, and the acceptance
+harness parses with its added checks for manifests, FIB history and counter IDs.
+
+## UDP and HTTP lab instructions
+
+Added `docs/traffic.md` with bidirectional interface explanations, the exact
+UDP crafting defaults, a UDP echo server/client, HTTP over TCP, and distinctions
+between closed ports, HTTP 404, missing routes and timeouts.
+
+Syntax checks passed for 64 command blocks in each of Fish and Bash; local
+links resolve and both embedded Python programs parse. A generated UDP packet
+confirmed the documented addresses, ports 40000/33434, TTL 64 and 60-byte size.
+The UDP server/client exchange, HTTP LICENSE response, HTTP 404 and closed-port
+curl failure were exercised on loopback with temporary ports outside the
+socket-restricted sandbox. These checks validate the application examples;
+they do not replace the pending privileged namespace-router acceptance run.

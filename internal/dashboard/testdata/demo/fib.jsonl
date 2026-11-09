@@ -1,0 +1,2 @@
+{"version":1,"routes":[{"prefix":"10.0.0.0/24","interface":"left","origin":"connected"},{"prefix":"10.0.1.0/24","interface":"right","origin":"connected"}]}
+{"version":2,"routes":[{"prefix":"10.0.0.0/24","interface":"left","origin":"connected"},{"prefix":"10.0.1.0/24","interface":"right","origin":"connected"},{"prefix":"192.0.2.0/24","interface":"right","origin":"static"}]}

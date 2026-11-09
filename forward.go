@@ -19,6 +19,7 @@ type TraceRecord struct {
 	Source         *netip.Addr `json:"source"`
 	Destination    *netip.Addr `json:"destination"`
 	Protocol       *uint8      `json:"protocol"`
+	ICMP           *ICMPFields `json:"icmp,omitempty"`
 	TTLBefore      *uint8      `json:"ttl_before"`
 	TTLAfter       *uint8      `json:"ttl_after"`
 	FIBVersion     uint64      `json:"fib_version"`
@@ -42,6 +43,7 @@ type Output struct {
 type Decision struct {
 	Trace   TraceRecord
 	Outputs []Output
+	Table   *Table // The exact immutable snapshot used for this decision.
 }
 
 type Engine struct {
@@ -74,7 +76,7 @@ func NewEngine(c Config) (*Engine, error) {
 // never retains or changes its caller's packet buffer.
 func (e *Engine) Process(ingress string, packet []byte) Decision {
 	table := e.FIB.Load() // One snapshot for forwarding and any resulting response.
-	d := Decision{Trace: TraceRecord{Kind: "packet", RouterID: e.Config.RouterID, Ingress: ingress,
+	d := Decision{Table: table, Trace: TraceRecord{Kind: "packet", RouterID: e.Config.RouterID, Ingress: ingress,
 		Length: len(packet), FIBVersion: table.Version(), Matches: []Route{}, Action: "drop"}}
 	drop := func(reason string) Decision { d.Trace.DropReason = reason; return d }
 	if _, ok := e.interfaces[ingress]; !ok {
@@ -85,6 +87,7 @@ func (e *Engine) Process(ingress string, packet []byte) Decision {
 		return drop(err.Error())
 	}
 	d.Trace.Source, d.Trace.Destination, d.Trace.Protocol = &h.Source, &h.Destination, &h.Protocol
+	d.Trace.ICMP = DescribeICMP(h)
 	d.Trace.TTLBefore, d.Trace.Length = &h.TTL, len(h.Bytes)
 	if !usableUnicast(h.Source) || e.subnetEndpoint(h.Source) {
 		return drop("invalid_source")

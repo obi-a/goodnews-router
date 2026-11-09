@@ -1,6 +1,6 @@
 GO ?= go
 # Lab captures can be owned by root; keep package discovery in source directories.
-PACKAGES = . ./cmd/... ./drivers/...
+PACKAGES = . ./cmd/... ./drivers/... ./internal/...
 
 .PHONY: build test vet check fuzz lab-up lab-check lab-down integration
 
