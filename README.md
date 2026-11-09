@@ -8,6 +8,11 @@ The router owns its addresses in Go. It does not assign them to kernel
 interfaces. The lab disables kernel forwarding, and traffic stops when the
 process stops.
 
+![Interactive goodnews dashboard showing topology, counters, the forwarding table, and scrollable packet history](docs/images/dashboard.png)
+
+Browse packet history alongside topology, counters, and the forwarding table.
+See the [dashboard guide](docs/dashboard.md) to run it yourself.
+
 ## Build and check
 
 Use Linux and Go 1.27.3. The only module dependency is `golang.org/x/sys`.
@@ -31,8 +36,8 @@ env GOTOOLCHAIN=auto make fuzz
 
 `check` validates configuration without opening interfaces or requiring root.
 If make is unavailable, use `go build -o bin/goodnews ./cmd/goodnews`,
-`go test -race . ./cmd/... ./drivers/...`, and
-`go vet . ./cmd/... ./drivers/...` directly. The package patterns keep Go from
+`go test -race . ./cmd/... ./drivers/... ./internal/...`, and
+`go vet . ./cmd/... ./drivers/... ./internal/...` directly. These patterns keep Go from
 entering private, root-owned lab captures under `artifacts/`.
 
 ## Run the first lab
@@ -41,6 +46,10 @@ Follow the [Stage 1 lab guide](docs/stage1.md) for setup, commands explained in
 context, expected results, captures, configuration experiments, and cleanup.
 It identifies which commands run in each terminal. The commands below are a
 quick reference for returning sessions.
+
+The guides support both Fish and Bash. Shared command blocks work in either
+shell, and prompts have separately labeled Fish and Bash versions. Fish users
+can stay in Fish throughout the lab.
 
 Use a Linux host with network namespace support, `/dev/net/tun`, and sudo.
 Setup needs `CAP_NET_ADMIN` and namespace switching needs `CAP_SYS_ADMIN`;
@@ -87,11 +96,33 @@ Ubuntu host; setup fails with a diagnostic.
 
 ## Inspect packets
 
+For a combined live view with scrollback, see the
+[terminal dashboard guide](docs/dashboard.md). It shows topology, counters,
+forwarding tables, packet decisions, and historical state:
+
+```sh
+sudo ./bin/goodnews dashboard --config lab/stage1.json
+```
+
+Rebuild and restart the router first so it writes the new history metadata.
+To try the interface without a running lab or sudo:
+
+```sh
+./bin/goodnews dashboard --run internal/dashboard/testdata/demo
+```
+
+Arrow keys/Page Up/Page Down browse history, Enter opens details, End resumes
+following, and `q` quits. These commands work in Fish and Bash. Open saved runs
+with `--run DIR`; unrecorded historical state is labeled unavailable.
+Live attachment discovers the run directory automatically.
+
 Each run prints a fresh directory under `artifacts/runs`. It contains:
 
 - `trace.jsonl`: one terminal decision per received packet, plus generated-packet
   records linked by `parent_id`.
 - `counters.jsonl`: snapshots after each processed packet.
+- `run.json`: startup identity, interfaces, and effective protections.
+- `fib.jsonl`: the initial forwarding table and each version used by a packet.
 - `left.pcap` and `right.pcap`: raw IPv4 packets received and successfully sent.
 
 Decode private pcaps with `sudo cat FILE | tcpdump -nn -r -`, or copy them to
@@ -113,6 +144,11 @@ are traced and counted; capture/export failures stop the router.
 
 ## Craft a packet
 
+For successful UDP and HTTP exchanges, follow the [traffic guide](docs/traffic.md).
+It includes a UDP echo server/client, a web server, and commands for comparing
+application errors with router errors. `left` and `right` are bidirectional
+router interfaces, separate from UDP/TCP application port numbers.
+
 Crafting uses AF_PACKET on the host TUN, avoiding the AF_INET path that repairs
 IPv4 checksums. This keeps corruption visible to the router.
 
@@ -121,9 +157,15 @@ sudo ip netns exec gn-h1 ./bin/goodnews craft --interface gn0 --bad-checksum
 sudo ip netns exec gn-h1 ./bin/goodnews craft --interface gn0 --ttl 1
 sudo ip netns exec gn-h1 ./bin/goodnews craft --interface gn0 --dst 192.0.2.1
 sudo ip netns exec gn-h1 ./bin/goodnews craft --interface gn0 --version 6
+sudo ip netns exec gn-h1 ./bin/goodnews craft --interface gn0 --protocol udp
 ./bin/goodnews craft --output /tmp/echo.ip
 ./bin/goodnews craft -h
 ```
+
+`craft` sends one packet and exits without waiting for a reply. UDP defaults to
+`10.0.0.2:40000` → `10.0.1.2:33434`, with a 32-byte payload. With no receiving
+application on h2's destination port, expect an ICMP Port Unreachable in the
+dashboard. The command itself is silent on successful transmission.
 
 For protection experiments, edit a copy of the configuration and restart the
 router. Set `protections.verify_ipv4_checksum` or `protections.decrement_ttl`

@@ -14,9 +14,11 @@ import (
 // Observer is synchronous on purpose: educational traces must not silently lose
 // records to an asynchronous logging queue.
 type Observer struct {
-	trace, counters *os.File
-	captures        map[string]*os.File
-	Directory       string
+	trace, counters, fib *os.File
+	captures             map[string]*os.File
+	Directory            string
+	info                 RunInfo
+	versions             map[uint64]bool
 }
 
 func OpenObserver(c Config) (_ *Observer, err error) {
@@ -27,7 +29,14 @@ func OpenObserver(c Config) (_ *Observer, err error) {
 	if err != nil {
 		return nil, err
 	}
-	o := &Observer{Directory: dir, captures: map[string]*os.File{}}
+	absolute, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
+	o := &Observer{Directory: dir, captures: map[string]*os.File{}, versions: map[uint64]bool{}}
+	o.info = RunInfo{Version: 1, RunID: filepath.Base(dir), RouterID: c.RouterID,
+		StartedAt: time.Now().UTC(), ArtifactDirectory: absolute, Interfaces: append([]Interface(nil), c.Interfaces...),
+		Protections: map[string]bool{"verify_ipv4_checksum": enabled(c.Protections.VerifyIPv4Checksum), "decrement_ttl": enabled(c.Protections.DecrementTTL)}}
 	defer func() {
 		if err != nil {
 			_ = o.Close()
@@ -37,6 +46,26 @@ func OpenObserver(c Config) (_ *Observer, err error) {
 		return nil, err
 	}
 	if o.counters, err = os.OpenFile(filepath.Join(dir, "counters.jsonl"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600); err != nil {
+		return nil, err
+	}
+	if o.fib, err = os.OpenFile(filepath.Join(dir, "fib.jsonl"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600); err != nil {
+		return nil, err
+	}
+	manifest, err := json.MarshalIndent(o.info, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	if err = os.WriteFile(filepath.Join(dir, "run.json"), append(manifest, '\n'), 0600); err != nil {
+		return nil, err
+	}
+	table, err := BuildTable(c, 1)
+	if err != nil {
+		return nil, err
+	}
+	if err = o.RecordFIB(table); err != nil {
+		return nil, err
+	}
+	if err = o.Counters(initialCounters(c)); err != nil {
 		return nil, err
 	}
 	for _, iface := range c.Interfaces {
@@ -96,6 +125,20 @@ func (o *Observer) Trace(record TraceRecord) error { return json.NewEncoder(o.tr
 func (o *Observer) Counters(record CounterSnapshot) error {
 	return json.NewEncoder(o.counters).Encode(record)
 }
+
+func (o *Observer) RunInfo() RunInfo { return o.info }
+
+// RecordFIB runs on the observation worker, before any trace using this version.
+func (o *Observer) RecordFIB(table *Table) error {
+	if o.versions[table.Version()] {
+		return nil
+	}
+	if err := json.NewEncoder(o.fib).Encode(FIBSnapshot{Version: table.Version(), Routes: table.Routes()}); err != nil {
+		return err
+	}
+	o.versions[table.Version()] = true
+	return nil
+}
 func (o *Observer) Close() error {
 	var errs []error
 	if o.trace != nil {
@@ -103,6 +146,9 @@ func (o *Observer) Close() error {
 	}
 	if o.counters != nil {
 		errs = append(errs, o.counters.Close())
+	}
+	if o.fib != nil {
+		errs = append(errs, o.fib.Close())
 	}
 	for _, f := range o.captures {
 		errs = append(errs, f.Close())

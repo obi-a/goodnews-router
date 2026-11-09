@@ -208,8 +208,10 @@ func TestPCAPAndJSONLArtifacts(t *testing.T) {
 	}
 	for _, name := range []string{"trace.jsonl", "counters.jsonl"} {
 		data, _ := os.ReadFile(filepath.Join(o.Directory, name))
-		if !json.Valid(bytes.TrimSpace(data)) {
-			t.Fatalf("invalid JSONL %s", name)
+		for _, line := range bytes.Split(bytes.TrimSpace(data), []byte{'\n'}) {
+			if !json.Valid(line) {
+				t.Fatalf("invalid JSONL %s", name)
+			}
 		}
 	}
 }

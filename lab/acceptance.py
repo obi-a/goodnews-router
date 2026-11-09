@@ -159,6 +159,13 @@ def main():
         ids = {t["packet_id"] for t in traces}
         assert len(ids) == len(traces)
         assert all(t["parent_id"] in ids for t in traces if "parent_id" in t)
+        manifest = json.loads((run / "run.json").read_text())
+        assert manifest["version"] == 1 and manifest["router_id"] == "r1"
+        tables = {row["version"] for row in map(json.loads, (run / "fib.jsonl").read_text().splitlines())}
+        counts = {row["after_packet_id"] for row in map(json.loads, (run / "counters.jsonl").read_text().splitlines())}
+        assert 0 in counts, "missing startup counters"
+        assert all(t["fib_version"] in tables for t in traces), "missing historical forwarding table"
+        assert all(t.get("parent_id", t["packet_id"]) in counts for t in traces), "missing event-linked counters"
         left, right = packets(run / "left.pcap"), packets(run / "right.pcap")
         src, dst = ipaddress.ip_address("10.0.0.2").packed, ipaddress.ip_address("10.0.1.2").packed
         requests = [p for p in left if len(p) > 28 and p[0] == 0x45

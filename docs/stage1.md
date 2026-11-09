@@ -13,8 +13,12 @@ Use your normal Ubuntu terminal, with sudo available. Open two terminal windows:
 - **Terminal A** runs the router and shows where it saves captures.
 - **Terminal B** runs setup, ping, inspection, and cleanup commands.
 
-The commands below use Bash, including variables and Python here-documents.
-If you normally use Fish, enter `bash` in each terminal first. In both terminals:
+Use either **Fish or Bash** in both terminals. Blocks labeled `sh` work in
+either shell. When syntax differs, separate Fish and Bash blocks are provided;
+run only the one for your shell. The Makefile runs the lab's Bash setup script
+for you, so Fish users can stay in Fish.
+
+In both terminals:
 
 ```sh
 cd /home/obi/bin/goodnews-router
@@ -62,6 +66,14 @@ Both host interfaces are called `gn0`. They can share that name because they
 live in different namespaces. Each is a **TUN interface**: when the host sends
 an IP packet through it, our router can read the packet; when our router writes
 to it, the host receives a packet.
+
+`left` and `right` are the Go router's logical interface names. `left` attaches
+to h1's `gn0`; `right` attaches to h2's `gn0`. Each is bidirectional. For an
+h1-to-h2 request, `left` is ingress and `right` is egress; for the reply, the
+roles reverse. In this software lab the attachments are open TUN descriptors,
+serving the role that physical network ports would serve on a hardware router.
+UDP/TCP port numbers identify applications within a host and are a different
+use of the word "port."
 
 Setup brings the interfaces up, sets their MTU to 1500, and adds default routes.
 For example, h1's default route sends traffic outside `10.0.0.0/24` through
@@ -124,15 +136,29 @@ It prints a fresh output directory, such as:
 artifacts: artifacts/runs/r1-885399003
 ```
 
-In Terminal B, run this command and paste the actual directory printed in
-Terminal A, without the `artifacts:` label:
+### Save the capture directory
 
-```sh
+The numbered directory above is an example. In Terminal B, run the command for
+your shell exactly as written. When the prompt appears, paste the **actual
+directory printed in Terminal A**, without the `artifacts:` label, and press
+Enter.
+
+**Fish:**
+
+```fish
+read -P 'Artifact directory from Terminal A: ' RUN_DIR
+```
+
+**Bash:**
+
+```bash
 read -r -p 'Artifact directory from Terminal A: ' RUN_DIR
 ```
 
-`RUN_DIR` is a Bash variable used by the capture and trace commands below.
-Every router restart creates a new directory; update this variable each time.
+Keep `RUN_DIR` in the command: it is the variable name, not a placeholder for
+the path. Enter the path at the prompt, rather than replacing `RUN_DIR` with
+it. In both shells, `$RUN_DIR` retrieves the saved path for the commands below.
+Every router restart creates a new directory; repeat this step each time.
 
 Now ping each gateway from its host:
 
@@ -158,6 +184,19 @@ in the router config; both attach to a host-side device named `gn0`.
 
 The socket path is how inspection commands contact the running router.
 Adding `--json` gives compact JSON output.
+
+For a combined view with scrollback, run in Terminal B:
+
+```sh
+sudo ./bin/goodnews dashboard --config lab/stage1.json
+```
+
+It discovers the current run directory automatically and displays topology,
+counters, the forwarding table, and packet history. Use a third terminal to
+send pings while watching, or press `q` to return to the commands below.
+Arrow keys/Page Up/Page Down browse past events; Enter opens details and End
+returns to live activity. See the [dashboard guide](dashboard.md) for saved-run
+browsing and a synthetic example that works without sudo.
 
 ## 3. Forward traffic and inspect its TTL
 
@@ -268,6 +307,9 @@ can inspect its bad checksum there. It should not be forwarded to the right.
 Keep the router and namespaces available if you want to continue with the
 [route and protection experiments](stage1-experiments.md). That guide shows
 how to create experimental configurations, restart, and inspect the results.
+For application traffic, the [UDP and HTTP guide](traffic.md) explains raw
+crafting, UDP echo, HTTP over TCP, and the difference between a missing route,
+a closed application port, a missing web resource, and a timeout.
 
 ## 6. Prove the router is necessary and clean up
 
@@ -311,6 +353,7 @@ before running it against a disposable PostgreSQL database.
 | Lab state already exists | Inspect with `make lab-check`; stop the old router, then run `make lab-down` before creating a fresh lab. |
 | Namespace has running processes | Stop the router or namespace shell. `sudo ip netns pids gn-r1` lists processes in the router namespace. |
 | Inspection socket unavailable | Check that Terminal A is running the router and inspect its error output. |
+| `read` reports an invalid variable name | Use the Fish or Bash command in [Save the capture directory](#save-the-capture-directory). Keep `RUN_DIR` as the variable name and enter the path at the prompt. |
 | Capture or trace permission denied | Use the `sudo cat` or `sudo tail` commands above. Refresh `RUN_DIR` after a restart. |
 | Ping fails while the router is running | Run `make lab-check`, inspect counters and recent traces, and check the intended config is running. |
 

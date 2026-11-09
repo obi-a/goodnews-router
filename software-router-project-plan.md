@@ -139,6 +139,8 @@ Nothing in the data plane knows which routing algorithm is running. That is why 
 
 Two command line programs sit on top of this. `goodnews` is the router and answers `goodnews show` queries while it runs. `badnews` causes failures on purpose, such as `badnews link y-x cost 60` for the textbook's bad news example, and `badnews clear` puts everything back.
 
+`goodnews dashboard` adds a read-only terminal view of topology, counters, the forwarding table and packet history. It discovers a running router through its configuration, or opens a saved run with `--run`. Scrolling back restores the selected packet's recorded table and counters. New runs save a manifest, full FIB versions and event-linked counter snapshots; older logs remain readable with unrecorded state labeled unavailable. `docs/dashboard.md` explains live monitoring, replay and navigation in Fish and Bash.
+
 ## What happens to each packet
 
 This flow is the forwarding engine, and Stage 1 is mostly writing it.
