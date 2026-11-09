@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "router_id": "r1",
+  "interfaces": [
+    {
+      "name": "left",
+      "address": "10.0.0.1/24",
+      "mtu": 1500,
+      "driver": "tun",
+      "device": "gn0",
+      "netns": "/run/netns/gn-h1"
+    },
+    {
+      "name": "right",
+      "address": "10.0.1.1/24",
+      "mtu": 1500,
+      "driver": "tun",
+      "device": "gn0",
+      "netns": "/run/netns/gn-h2"
+    }
+  ],
+  "routes": [],
+  "observability": {
+    "directory": "artifacts/runs",
+    "socket": "/run/goodnews-lab-stage1/r1.sock"
+  },
+  "protections": {
+    "verify_ipv4_checksum": true,
+    "decrement_ttl": true
+  }
+}
