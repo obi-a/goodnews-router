@@ -290,17 +290,89 @@ Expect `drop_reason: "no_route"` and `icmp_suppressed: "icmp_error"`.
 
 ## 5. Corrupt a packet
 
-Inspect counters, send one packet with an invalid IPv4 checksum, and inspect
-counters again:
+This experiment checks that the router rejects a corrupt IPv4 header. Keep
+the router running in Terminal A and run these commands in Terminal B. Use
+the default configuration, with IPv4 checksum verification enabled, and pause
+other traffic so the changes are easy to compare.
 
-```sh
-sudo ./bin/goodnews show counters --socket /run/goodnews-lab-stage1/r1.sock
-sudo ip netns exec gn-h1 ./bin/goodnews craft --interface gn0 --bad-checksum
-sudo ./bin/goodnews show counters --socket /run/goodnews-lab-stage1/r1.sock
-sudo tail -n 1 "$RUN_DIR/trace.jsonl" | python3 -m json.tool --json-lines
-```
+1. Read the current counters:
 
-Expect `invalid_checksum` to increase by one and the trace to show a drop.
+   ```sh
+   sudo ./bin/goodnews show counters --socket /run/goodnews-lab-stage1/r1.sock
+   ```
+
+   This asks the running router for its cumulative totals: packets received,
+   transmitted, delivered locally, and dropped, including the reasons for
+   drops. Keep this output to compare with the next reading.
+
+   The `.sock` path is a local Unix socket used to communicate with the router
+   process. This query does not send a packet through the lab's network.
+   `sudo` provides access to the protected socket.
+
+2. Send one packet with an invalid IPv4 header checksum:
+
+   ```sh
+   sudo ip netns exec gn-h1 ./bin/goodnews craft --interface gn0 --bad-checksum
+   ```
+
+   `ip netns exec gn-h1` runs `goodnews craft` inside host h1's network
+   namespace. `craft` constructs and sends one packet; `--interface gn0`
+   selects h1's TUN interface, which connects to the router's `left` side.
+
+   With the defaults, the packet is an ICMP Echo Request from `10.0.0.2` to
+   `10.0.1.2`, with TTL 64. `--bad-checksum` deliberately corrupts the IPv4
+   header checksum, a value used to detect header corruption. The router
+   should reject the packet during header validation, before forwarding it
+   to h2. `craft` normally prints nothing when sending succeeds; that silence
+   does not mean the router accepted or forwarded the packet.
+
+3. Read the counters again:
+
+   ```sh
+   sudo ./bin/goodnews show counters --socket /run/goodnews-lab-stage1/r1.sock
+   ```
+
+   After the router processes the packet, expect these changes from the first
+   reading, assuming no other traffic:
+
+   | Counter | Change |
+   |---|---|
+   | `received` | +1 |
+   | `dropped` | +1 |
+   | `drop_reasons.invalid_checksum` | +1 |
+   | `transmitted` | No change |
+
+   These counters accumulate throughout the router run. Compare the two
+   readings rather than expecting the totals themselves to equal one.
+
+4. Inspect the most recent packet decision:
+
+   ```sh
+   sudo tail -n 1 "$RUN_DIR/trace.jsonl" | python3 -m json.tool --json-lines
+   ```
+
+   `$RUN_DIR` is the current run's artifact directory, saved in
+   [Save the capture directory](#save-the-capture-directory). Update it after
+   every router restart. `tail -n 1` reads the final line of `trace.jsonl`.
+   This file uses JSON Lines: each line is a separate JSON object describing
+   a packet event.
+
+   The pipe (`|`) passes that line to Python, where
+   `python3 -m json.tool --json-lines` formats it into readable, indented
+   output. Only `tail` needs `sudo` to read the protected file; Python reads
+   the piped output.
+   This command reads the latest event once, rather than monitoring new ones.
+
+   The relevant fields should look like:
+
+   ```json
+   {
+     "ingress": "left",
+     "action": "drop",
+     "drop_reason": "invalid_checksum"
+   }
+   ```
+
 The router records the corrupt packet in `left.pcap` before validation, so you
 can inspect its bad checksum there. It should not be forwarded to the right.
 
