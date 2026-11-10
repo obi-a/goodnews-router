@@ -19,6 +19,9 @@ Choose a guide to inspect the router:
 
 ## Build and check
 
+Run all commands from the goodnews project directory: the repository root
+containing `Makefile` and `go.mod`. Open each lab terminal in that directory.
+
 Use Linux and Go 1.27.3. The only module dependency is `golang.org/x/sys`.
 The race detector needs a C compiler. On Ubuntu, install Go and the lab tools with:
 

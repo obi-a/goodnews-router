@@ -18,11 +18,8 @@ either shell. When syntax differs, separate Fish and Bash blocks are provided;
 run only the one for your shell. The Makefile runs the lab's Bash setup script
 for you, so Fish users can stay in Fish.
 
-In both terminals:
-
-```sh
-cd /home/obi/bin/goodnews-router
-```
+Run all commands from the goodnews project directory: the repository root
+containing `Makefile` and `go.mod`. Open both terminals in that directory.
 
 On a machine that needs the tools installed, run in Terminal B:
 

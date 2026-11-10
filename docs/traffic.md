@@ -24,19 +24,15 @@ within a host. They are separate from the router's network interfaces.
 
 ## Prepare the terminals
 
-Run commands from `/home/obi/bin/goodnews-router`. Reuse an existing lab, or
-follow the main guide to build and run `make lab-up` once.
+Run all commands from the goodnews project directory: the repository root
+containing `Makefile` and `go.mod`. Open each terminal in that directory.
+Reuse an existing lab, or follow the main guide to build and run `make lab-up`
+once.
 
 - **Terminal A:** router, using the command below.
 - **Terminal B:** dashboard, using the command below.
 - **Terminal C:** h1 client commands.
 - **Terminal D:** h2 server commands; keep the server running while its client runs.
-
-In each terminal, change to the project directory:
-
-```sh
-cd /home/obi/bin/goodnews-router
-```
 
 In Terminal A:
 
