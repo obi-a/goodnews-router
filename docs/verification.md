@@ -118,3 +118,13 @@ The UDP server/client exchange, HTTP LICENSE response, HTTP 404 and closed-port
 curl failure were exercised on loopback with temporary ports outside the
 socket-restricted sandbox. These checks validate the application examples;
 they do not replace the pending privileged namespace-router acceptance run.
+
+## Stage 1 fault experiments and badnews status
+
+Documented the available Stage 1 fault exercises and clarified that `badnews`
+is a planned Stage 2 tool. Syntax checking passed for 71 blocks in each of Fish
+and Bash; local links resolve. Generated packets confirmed the documented IPv4
+validation drops, TTL/route ICMP responses, local ICMP rejection and forwarding
+of transit ICMP with an invalid transport checksum. These checks used the
+forwarding engine directly; outage and namespace-interface observations remain
+manual lab exercises.
