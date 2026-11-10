@@ -10,8 +10,12 @@ process stops.
 
 ![Interactive goodnews dashboard showing topology, counters, the forwarding table, and scrollable packet history](docs/images/dashboard.png)
 
-Browse packet history alongside topology, counters, and the forwarding table.
-See the [dashboard guide](docs/dashboard.md) to run it yourself.
+Choose a guide to inspect the router:
+
+- [Dashboard guide](docs/dashboard.md): watch topology, counters, forwarding
+  decisions, and scrollable packet history in the terminal.
+- [Wireshark packet guide](docs/wireshark.md): open captures, compare packets
+  on both sides of the router, and inspect TTL and checksums.
 
 ## Build and check
 

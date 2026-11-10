@@ -244,7 +244,9 @@ sudo cat "$RUN_DIR/right.pcap" > "$HOME/goodnews-captures/right.pcap"
 ```
 
 Open those copies through Wireshark's **File → Open**. Expand the IPv4 and
-ICMP fields to compare a request on both sides.
+ICMP fields to compare a request on both sides. Follow the
+[Wireshark packet guide](wireshark.md) for installation, display filters,
+TTL comparisons, and checksum validation.
 
 ## 4. Watch traceroute and ICMP errors
 
