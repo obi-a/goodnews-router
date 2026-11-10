@@ -8,9 +8,114 @@ Use Fish or Bash. Shared `sh` blocks work in both shells; choose your shell's
 block where a Fish or Bash label is shown. The multiline `python3 -c` commands
 also work in both shells; paste the complete block, including its closing quote.
 
-Each experiment creates a separate configuration from `lab/stage1.json`. The
+Configuration experiments create separate files from `lab/stage1.json`; the
 supplied configuration stays unchanged. Predict the result before sending
 packets, then compare the trace and captures.
+
+## Stage 1 faults and badnews
+
+**`badnews` is planned for Stage 2 and has not been implemented yet.** The
+current build produces `goodnews`; there is no `badnews` binary or runtime
+impairment API to invoke. Examples of `badnews` commands in the project plan
+describe future behavior.
+
+Delay, packet loss and link outages would be useful experiments even with the
+Stage 1 TUN topology: they could show up as increased ping RTT, lost replies or
+failed forwarding. Those controls remain future work. Route-cost changes and
+poisoned-reverse experiments become relevant with Stage 4's routing protocols;
+the current forwarding table contains connected and static routes.
+
+You can already explore the following faults with Stage 1's existing tools.
+Keep the router running in Terminal A with the base `lab/stage1.json` config
+and observe it in the [dashboard](dashboard.md). Send packets from a spare
+terminal in the project directory. Commands work in Fish and Bash.
+
+### Drop malformed IPv4 packets
+
+```sh
+sudo ip netns exec gn-h1 ./bin/goodnews craft --interface gn0 --bad-checksum
+sudo ip netns exec gn-h1 ./bin/goodnews craft --interface gn0 --version 6
+sudo ip netns exec gn-h1 ./bin/goodnews craft --interface gn0 --ihl 4
+sudo ip netns exec gn-h1 ./bin/goodnews craft --interface gn0 --total-length 65000
+```
+
+Expect four drops with reasons `invalid_checksum`, `invalid_version`,
+`invalid_header_length` and `invalid_total_length`, respectively. Each craft
+command sends one packet and exits. The first test corrupts a checksum; the
+others deliberately produce header fields the IPv4 parser must reject.
+
+### Make TTL expire
+
+```sh
+sudo ip netns exec gn-h1 ./bin/goodnews craft --interface gn0 --ttl 1
+```
+
+Expect `ttl_expired` and a generated ICMP Time Exceeded response, type 11/code 0.
+The incoming packet is discarded and its error response is a separate record.
+Select either in the dashboard to inspect the parent/child relationship.
+
+### Send to an unrouted network
+
+```sh
+sudo ip netns exec gn-h1 ./bin/goodnews craft --interface gn0 --dst 192.0.2.1
+```
+
+The base config has no matching route. Expect `no_route` and a generated ICMP
+Network Unreachable response, type 3/code 0. This differs from a destination
+host returning Port Unreachable because no application is listening; see the
+[UDP and HTTP exercises](traffic.md).
+
+Inspect accumulated drop reasons after these experiments:
+
+```sh
+sudo ./bin/goodnews show counters --socket /run/goodnews-lab-stage1/r1.sock
+```
+
+### Compare IPv4 and ICMP validation
+
+Send an invalid ICMP checksum to the router's own address:
+
+```sh
+sudo ip netns exec gn-h1 ./bin/goodnews craft --interface gn0 --dst 10.0.0.1 --bad-icmp-checksum
+```
+
+Expect `invalid_icmp`: the router is the destination and validates the ICMP
+message before answering it. If you instead target h2 with
+`--dst 10.0.1.2 --bad-icmp-checksum`, the router can forward its valid IPv4
+packet and h2 rejects the invalid ICMP message. That failure appears as an
+unanswered request, rather than an `invalid_icmp` drop inside our router.
+
+### Disable a protection
+
+Follow [Keep TTL unchanged](#2-keep-ttl-unchanged) and
+[Accept an invalid IPv4 checksum](#3-accept-an-invalid-ipv4-checksum) below.
+Both use config copies and a router restart. They show what each protection
+does; there is no runtime `badnews` switch yet. Header bounds checks stay active
+even with checksum verification disabled. The two-host topology has no routing
+loop, so disabling TTL decrement demonstrates an unchanged TTL here.
+
+### Observe a router outage
+
+Stop the router with Ctrl-C in Terminal A. From the sending terminal:
+
+```sh
+sudo ip netns exec gn-h1 ping -n -c 3 -W 1 10.0.1.2
+```
+
+Expect failure even though the namespaces and host routes still exist. The
+kernel does not take over forwarding. The stopped router cannot record packets
+sent during its outage; its last history remains available in the dashboard.
+
+Restart it in Terminal A:
+
+```sh
+sudo ip netns exec gn-r1 ./bin/goodnews run --config lab/stage1.json
+```
+
+Repeat ping and expect replies. The restart creates a new run with fresh
+counters. Press `r` when the dashboard reports the new run; update `RUN_DIR`
+if you are inspecting its files manually. Stop this router before starting the
+configuration experiments below.
 
 ## 1. Observe longest prefix match
 

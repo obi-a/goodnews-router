@@ -171,6 +171,16 @@ For protection experiments, edit a copy of the configuration and restart the
 router. Set `protections.verify_ipv4_checksum` or `protections.decrement_ttl`
 to false. Omitted switches default to true. Length checks always remain active.
 
+## Fault experiments and badnews
+
+`badnews` is planned for Stage 2 and is not part of the current build. Stage 1
+already supports malformed-packet, TTL, missing-route, protection-switch and
+router-outage experiments through `goodnews craft`, config copies and router
+restarts. Follow the [Stage 1 fault exercises](docs/stage1-experiments.md#stage-1-faults-and-badnews)
+for commands and expected dashboard results. Runtime delay/loss/link controls
+remain future work; routing-cost experiments apply when Stage 4 adds routing
+protocols.
+
 ## Full acceptance check
 
 ```sh

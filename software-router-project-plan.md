@@ -77,7 +77,7 @@ Four constraints apply to every stage.
 | R19 | Log one trace record per packet with interface, addresses, TTL before and after, every matching prefix, the winner, and the action or drop reason | 1 | One ping can be followed start to finish in the trace |
 | R20 | Log each algorithm step, with Dijkstra iterations in the textbook's step table layout and every distance vector update | 4 | Output compares line by line with hand work |
 | R21 | Offer `goodnews show` to display the forwarding table, ARP cache, neighbors, link state database and counters | 1 | Each command answers on a running router |
-| R22 | Provide `badnews`, a tool that changes link cost, link state, delay, loss and corruption at runtime | 2 | A cost change alters routes with no restart |
+| R22 | Provide `badnews`, a tool that changes link cost, link state, delay, loss and corruption at runtime | 2 | Impairments affect ping in Stage 2; Stage 4 cost changes alter routes with no restart |
 | R23 | Include a packet crafting tool and write a pcap file per interface | 1 | A crafted packet appears in Wireshark and in the trace |
 | R24 | Export traces and counters as JSON lines | 1 | A file loads into PostgreSQL and answers a query |
 | R25 | Provide switches that disable protections, such as TTL decrement, checksum checks and poisoned reverse | 1 | Turning one off produces the failure it prevents |
@@ -137,7 +137,9 @@ Nothing in the data plane knows which routing algorithm is running. That is why 
 | Controller | `controller.go` | Computes rules centrally and pushes them out | 6 | R17, R18 |
 | Lab scripts | `lab/` | Builds namespaces and cables, runs the exit tests | 1 | All |
 
-Two command line programs sit on top of this. `goodnews` is the router and answers `goodnews show` queries while it runs. `badnews` causes failures on purpose, such as `badnews link y-x cost 60` for the textbook's bad news example, and `badnews clear` puts everything back.
+The implemented command line program is `goodnews`, which runs the router and answers `goodnews show` queries while it runs. A second program, `badnews`, is planned for Stage 2 and is not implemented yet. Its proposed commands include `badnews link y-x cost 60` for the textbook's bad news example and `badnews clear` to reset impairments. These are future interfaces; cost changes become routing inputs in Stage 4.
+
+Stage 1 already offers fault experiments using crafted malformed packets, TTL expiry, missing routes, protection switches and stopping the router. `docs/stage1-experiments.md` documents those commands and their expected observations. A future `badnews` could also demonstrate delay, loss and link failure in a TUN lab, but Stage 1 currently has no runtime impairment controls.
 
 `goodnews dashboard` adds a read-only terminal view of topology, counters, the forwarding table and packet history. It discovers a running router through its configuration, or opens a saved run with `--run`. Scrolling back restores the selected packet's recorded table and counters. New runs save a manifest, full FIB versions and event-linked counter snapshots; older logs remain readable with unrecorded state labeled unavailable. `docs/dashboard.md` explains live monitoring, replay and navigation in Fish and Bash.
 
