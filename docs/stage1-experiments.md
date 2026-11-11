@@ -14,16 +14,11 @@ packets, then compare the trace and captures.
 
 ## Stage 1 faults and badnews
 
-**`badnews` is planned for Stage 2 and has not been implemented yet.** The
-current build produces `goodnews`; there is no `badnews` binary or runtime
-impairment API to invoke. Examples of `badnews` commands in the project plan
-describe future behavior.
-
-Delay, packet loss and link outages would be useful experiments even with the
-Stage 1 TUN topology: they could show up as increased ping RTT, lost replies or
-failed forwarding. Those controls remain future work. Route-cost changes and
-poisoned-reverse experiments become relevant with Stage 4's routing protocols;
-the current forwarding table contains connected and static routes.
+Stage 2 now adds `badnews` for runtime delay, loss, corruption and link state.
+See the [Stage 2 guide](stage2.md) for commands and limits. To apply egress
+impairments to the TUN lab, put `--socket /run/goodnews-lab-stage1/r1.sock`
+before the `badnews` command. Route-cost and poisoned-reverse experiments
+remain Stage 4 work; the current table contains connected and static routes.
 
 You can already explore the following faults with Stage 1's existing tools.
 Keep the router running in Terminal A with the base `lab/stage1.json` config

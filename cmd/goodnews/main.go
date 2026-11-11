@@ -114,7 +114,13 @@ func run(c goodnews.Config) (err error) {
 	links := map[string]goodnews.Link{}
 	defer func() { _ = goodnews.CloseLinks(links) }()
 	for _, iface := range c.Interfaces {
-		link, err := drivers.OpenTUN(iface.Device, iface.NetNS)
+		var link goodnews.Link
+		var err error
+		if iface.Driver == "ethernet" {
+			link, err = drivers.OpenEthernet(iface.Device, iface.MTU)
+		} else {
+			link, err = drivers.OpenTUN(iface.Device, iface.NetNS)
+		}
 		if err != nil {
 			return fmt.Errorf("interface %s: %w", iface.Name, err)
 		}
@@ -143,10 +149,10 @@ func run(c goodnews.Config) (err error) {
 
 func show(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: goodnews show interfaces|routes|counters|arp|neighbors|lsdb [--socket PATH] [--json]")
+		return fmt.Errorf("usage: goodnews show interfaces|routes|counters|arp|impairments|neighbors|lsdb [--socket PATH] [--json]")
 	}
 	subsystem := args[0]
-	if !strings.Contains("|interfaces|routes|counters|arp|neighbors|lsdb|", "|"+subsystem+"|") {
+	if !strings.Contains("|interfaces|routes|counters|arp|impairments|neighbors|lsdb|", "|"+subsystem+"|") {
 		return fmt.Errorf("unknown subsystem %q", subsystem)
 	}
 	fs := flag.NewFlagSet("show", flag.ContinueOnError)
@@ -188,7 +194,8 @@ func show(args []string) error {
 
 func craft(args []string) error {
 	fs := flag.NewFlagSet("craft", flag.ContinueOnError)
-	device := fs.String("interface", "", "host-side TUN device (run in its namespace)")
+	device := fs.String("interface", "", "host-side TUN or Ethernet device (run in its namespace)")
+	destinationMAC := fs.String("dst-mac", "", "next-hop MAC required for Ethernet crafting")
 	output := fs.String("output", "", "write raw IPv4 bytes to a file instead of sending")
 	source := fs.String("src", "10.0.0.2", "source IPv4 address")
 	destination := fs.String("dst", "10.0.1.2", "destination IPv4 address")
@@ -219,6 +226,9 @@ func craft(args []string) error {
 	}
 	if *device != "" && *output != "" {
 		return fmt.Errorf("choose either --interface or --output")
+	}
+	if *destinationMAC != "" && *device == "" {
+		return fmt.Errorf("--dst-mac requires --interface")
 	}
 	if *ttl < 0 || *ttl > 255 || *payloadSize < 0 || *payloadSize > 65507 || *version < 0 || *version > 15 || *ihl < 0 || *ihl > 15 || *length < -1 || *length > 65535 || *offset < 0 || *offset > 8191 || *icmpType < 0 || *icmpType > 255 || *icmpCode < 0 || *icmpCode > 255 {
 		return fmt.Errorf("packet field out of range")
@@ -280,6 +290,13 @@ func craft(args []string) error {
 	}
 	if *output != "" {
 		return os.WriteFile(*output, packet, 0600)
+	}
+	if *destinationMAC != "" {
+		mac, err := net.ParseMAC(*destinationMAC)
+		if err != nil || len(mac) != 6 || !goodnews.MAC(mac).Unicast() {
+			return fmt.Errorf("dst-mac must be a six-byte unicast MAC")
+		}
+		return drivers.SendRawIP(*device, packet, goodnews.MAC(mac))
 	}
 	return drivers.SendRawIP(*device, packet)
 }

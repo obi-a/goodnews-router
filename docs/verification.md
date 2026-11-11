@@ -1,5 +1,33 @@
 # Verification record
 
+## Stage 2 Ethernet, ARP, and runtime impairments (2026-11-10)
+
+Implemented on `feat/stage2-ethernet-arp`. The original Stage 1 TUN driver,
+config, lab script, and acceptance harness remain available. Both configs pass
+`goodnews check`, and all existing Stage 1 tests continue to pass.
+
+Passed race-enabled Go tests across all source packages, `go vet`, and builds
+of `goodnews` and `badnews` using Go 1.27.3. Added tests cover Ethernet/ARP wire
+layout and padding, ARP expiry/retries and bounded queues, gateway resolution,
+nonblocking forwarding during resolution, sender validation, retained FIB
+versions, Ethernet pcaps, fault controls, bounded delay and shutdown drops, API
+validation, and dashboard indexing/counter snapshots for deferred completions.
+
+Ten-second fuzz runs passed: `FuzzEthernetARP` executed 258,692 cases and
+`FuzzParseIPv4` executed 256,975 cases. Both Python harnesses parse, the Stage 2
+shell script passes `bash -n`, and all ten command blocks in `docs/stage2.md`
+pass both Bash and Fish syntax checks. Local links resolve. The full test suite
+ran outside the sandbox because its local Unix-socket integration test is
+blocked by sandbox socket restrictions.
+
+The privileged Stage 2 acceptance attempt could not start: outside the sandbox,
+`sudo -n python3 lab/acceptance_stage2.py` returned `sudo: interactive
+authentication is required`. No veth/raw-socket networking result is claimed.
+Run `make integration2` on the privileged Ubuntu host; it retains packet
+captures, command output, traces and a success-only result under
+`artifacts/stage2-*`. The empirical gate remains open until that passes. See
+[the Stage 2 guide](stage2.md) for setup and expected observations.
+
 ## Artifact ownership (2026-11-10)
 
 New router artifacts use the account identified by `SUDO_UID` and `SUDO_GID`
@@ -67,7 +95,8 @@ PostgreSQL import/query acceptance is also pending. A ready-to-run example is
 in `lab/postgres.sql`; update its trace path and run it against a disposable
 database. JSONL encoding itself is covered by automated tests.
 
-Stages 2–6 are not implemented. Their design gates remain in the project plan.
+Stage 2 implementation is recorded above. Stages 3–6 remain future work with
+their design gates in the project plan.
 
 ## Capture decoding permission fix
 

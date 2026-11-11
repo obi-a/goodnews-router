@@ -5,6 +5,7 @@ package drivers
 import (
 	"encoding/binary"
 	"fmt"
+	goodnews "github.com/obi-a/goodnews-router"
 	"net"
 
 	"golang.org/x/sys/unix"
@@ -12,10 +13,18 @@ import (
 
 // SendRawIP deliberately bypasses AF_INET, whose IP_HDRINCL path repairs the
 // IPv4 checksum and total length, hiding the corruption we want to study.
-func SendRawIP(device string, packet []byte) error {
+func SendRawIP(device string, packet []byte, destination ...goodnews.MAC) error {
 	iface, err := net.InterfaceByName(device)
 	if err != nil {
 		return err
+	}
+	if len(iface.HardwareAddr) == 6 {
+		if len(destination) != 1 {
+			return fmt.Errorf("Ethernet crafting requires --dst-mac for the next hop")
+		}
+		packet = goodnews.BuildEthernet(destination[0], goodnews.MAC(iface.HardwareAddr), goodnews.EtherTypeIPv4, packet)
+	} else if len(destination) != 0 {
+		return fmt.Errorf("--dst-mac requires an Ethernet device")
 	}
 	// sockaddr_ll protocol and socket protocol are network-byte-order values.
 	protocol := uint16(unix.ETH_P_IP)

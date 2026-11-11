@@ -8,36 +8,42 @@ import (
 )
 
 type TraceRecord struct {
-	Kind           string      `json:"kind"`
-	RouterID       string      `json:"router_id"`
-	PacketID       uint64      `json:"packet_id"`
-	ParentID       *uint64     `json:"parent_id,omitempty"`
-	Timestamp      time.Time   `json:"timestamp"`
-	Ingress        string      `json:"ingress,omitempty"`
-	Egress         string      `json:"egress,omitempty"`
-	Length         int         `json:"length"`
-	Source         *netip.Addr `json:"source"`
-	Destination    *netip.Addr `json:"destination"`
-	Protocol       *uint8      `json:"protocol"`
-	ICMP           *ICMPFields `json:"icmp,omitempty"`
-	TTLBefore      *uint8      `json:"ttl_before"`
-	TTLAfter       *uint8      `json:"ttl_after"`
-	FIBVersion     uint64      `json:"fib_version"`
-	Matches        []Route     `json:"matching_routes"`
-	Winner         *Route      `json:"selected_route"`
-	Action         string      `json:"action"`
-	DropReason     string      `json:"drop_reason,omitempty"`
-	ICMPSuppressed string      `json:"icmp_suppressed,omitempty"`
-	Error          string      `json:"error,omitempty"`
+	Kind            string      `json:"kind"`
+	RouterID        string      `json:"router_id"`
+	PacketID        uint64      `json:"packet_id"`
+	ParentID        *uint64     `json:"parent_id,omitempty"`
+	CounterPacketID *uint64     `json:"counter_packet_id,omitempty"`
+	Timestamp       time.Time   `json:"timestamp"`
+	Ingress         string      `json:"ingress,omitempty"`
+	Egress          string      `json:"egress,omitempty"`
+	Length          int         `json:"length"`
+	Source          *netip.Addr `json:"source"`
+	Destination     *netip.Addr `json:"destination"`
+	Protocol        *uint8      `json:"protocol"`
+	ICMP            *ICMPFields `json:"icmp,omitempty"`
+	TTLBefore       *uint8      `json:"ttl_before"`
+	TTLAfter        *uint8      `json:"ttl_after"`
+	FIBVersion      uint64      `json:"fib_version"`
+	Matches         []Route     `json:"matching_routes"`
+	Winner          *Route      `json:"selected_route"`
+	Action          string      `json:"action"`
+	DropReason      string      `json:"drop_reason,omitempty"`
+	ICMPSuppressed  string      `json:"icmp_suppressed,omitempty"`
+	Error           string      `json:"error,omitempty"`
+	EtherType       uint16      `json:"ether_type,omitempty"`
+	SourceMAC       string      `json:"source_mac,omitempty"`
+	DestinationMAC  string      `json:"destination_mac,omitempty"`
+	ARP             *ARPPacket  `json:"arp,omitempty"`
 }
 
 type Output struct {
-	Interface string
-	NextHop   netip.Addr
-	Packet    []byte
-	Generated bool
-	Route     Route
-	Matches   []Route
+	Interface  string
+	NextHop    netip.Addr
+	Packet     []byte
+	Generated  bool
+	Route      Route
+	Matches    []Route
+	FIBVersion uint64
 }
 
 type Decision struct {
@@ -131,6 +137,7 @@ func (e *Engine) Process(ingress string, packet []byte) Decision {
 	ttl := forwarded[8]
 	d.Trace.TTLAfter, d.Trace.Egress, d.Trace.Action = &ttl, route.Interface, "forward"
 	d.Outputs = []Output{makeOutput(route, matches, h.Destination, forwarded, false)}
+	d.Outputs[0].FIBVersion = table.Version()
 	return d
 }
 
@@ -230,6 +237,7 @@ func (e *Engine) respond(d Decision, original IPv4, table *Table, source netip.A
 	}
 	d.Trace.Action = action
 	d.Outputs = []Output{makeOutput(route, matches, original.Source, packet, true)}
+	d.Outputs[0].FIBVersion = table.Version()
 	return d
 }
 
