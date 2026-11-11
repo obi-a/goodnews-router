@@ -157,6 +157,11 @@ the path. Enter the path at the prompt, rather than replacing `RUN_DIR` with
 it. In both shells, `$RUN_DIR` retrieves the saved path for the commands below.
 Every router restart creates a new directory; repeat this step each time.
 
+New artifact directories and files belong to the account that invoked `sudo`.
+Directories use `700` and files use `600`, so you can browse your own captures
+and logs without sudo. Keep this terminal in the project directory when using
+a relative `RUN_DIR`; the numbered path above is only an example.
+
 Now ping each gateway from its host:
 
 ```sh
@@ -211,11 +216,11 @@ Each interface's pcap includes packets received and successfully sent. Decode
 the h1-to-h2 requests from each side:
 
 ```sh
-sudo cat "$RUN_DIR/left.pcap" | tcpdump -nn -vv -r - 'icmp and src host 10.0.0.2 and dst host 10.0.1.2'
-sudo cat "$RUN_DIR/right.pcap" | tcpdump -nn -vv -r - 'icmp and src host 10.0.0.2 and dst host 10.0.1.2'
+cat "$RUN_DIR/left.pcap" | tcpdump -nn -vv -r - 'icmp and src host 10.0.0.2 and dst host 10.0.1.2'
+cat "$RUN_DIR/right.pcap" | tcpdump -nn -vv -r - 'icmp and src host 10.0.0.2 and dst host 10.0.1.2'
 ```
 
-`sudo cat` opens the private capture; the pipe gives tcpdump the already-open
+`cat` opens your private capture; the pipe gives tcpdump the already-open
 data. `-r -` reads from standard input, `-nn` keeps addresses numeric, and `-vv`
 shows details including TTL.
 
@@ -226,21 +231,20 @@ the same. Changing TTL requires a new IPv4 header checksum.
 View recent decisions:
 
 ```sh
-sudo tail -n 4 "$RUN_DIR/trace.jsonl" | python3 -m json.tool --json-lines
+tail -n 4 "$RUN_DIR/trace.jsonl" | python3 -m json.tool --json-lines
 ```
 
 Look for `action: "forward"`, the incoming and outgoing interfaces,
 `ttl_before`, `ttl_after`, `matching_routes`, and `selected_route`.
 
-For Wireshark, make user-readable copies once the pings have finished:
+Once the pings have finished, open the captures directly in Wireshark:
 
 ```sh
-mkdir -p "$HOME/goodnews-captures"
-sudo cat "$RUN_DIR/left.pcap" > "$HOME/goodnews-captures/left.pcap"
-sudo cat "$RUN_DIR/right.pcap" > "$HOME/goodnews-captures/right.pcap"
+wireshark -r "$RUN_DIR/left.pcap" &
+wireshark -r "$RUN_DIR/right.pcap" &
 ```
 
-Open those copies through Wireshark's **File → Open**. Expand the IPv4 and
+You can also use Wireshark's **File → Open**. Expand the IPv4 and
 ICMP fields to compare a request on both sides. Follow the
 [Wireshark packet guide](wireshark.md) for installation, display filters,
 TTL comparisons, and checksum validation.
@@ -262,7 +266,7 @@ Generate a TTL-1 packet directly:
 
 ```sh
 sudo ip netns exec gn-h1 ./bin/goodnews craft --interface gn0 --ttl 1
-sudo tail -n 2 "$RUN_DIR/trace.jsonl" | python3 -m json.tool --json-lines
+tail -n 2 "$RUN_DIR/trace.jsonl" | python3 -m json.tool --json-lines
 ```
 
 Crafting is silent on success. Expect a trace with `drop_reason: "ttl_expired"`
@@ -282,7 +286,7 @@ An ICMP error should not cause another ICMP error. Test that rule:
 
 ```sh
 sudo ip netns exec gn-h1 ./bin/goodnews craft --interface gn0 --icmp-type 3 --dst 192.0.2.1
-sudo tail -n 1 "$RUN_DIR/trace.jsonl" | python3 -m json.tool --json-lines
+tail -n 1 "$RUN_DIR/trace.jsonl" | python3 -m json.tool --json-lines
 ```
 
 Expect `drop_reason: "no_route"` and `icmp_suppressed: "icmp_error"`.
@@ -347,7 +351,7 @@ other traffic so the changes are easy to compare.
 4. Inspect the most recent packet decision:
 
    ```sh
-   sudo tail -n 1 "$RUN_DIR/trace.jsonl" | python3 -m json.tool --json-lines
+   tail -n 1 "$RUN_DIR/trace.jsonl" | python3 -m json.tool --json-lines
    ```
 
    `$RUN_DIR` is the current run's artifact directory, saved in
@@ -358,8 +362,8 @@ other traffic so the changes are easy to compare.
 
    The pipe (`|`) passes that line to Python, where
    `python3 -m json.tool --json-lines` formats it into readable, indented
-   output. Only `tail` needs `sudo` to read the protected file; Python reads
-   the piped output.
+   output. Both programs run as your regular user; `tail` reads your private
+   trace and Python reads the piped output.
    This command reads the latest event once, rather than monitoring new ones.
 
    The relevant fields should look like:
@@ -425,7 +429,7 @@ before running it against a disposable PostgreSQL database.
 | Namespace has running processes | Stop the router or namespace shell. `sudo ip netns pids gn-r1` lists processes in the router namespace. |
 | Inspection socket unavailable | Check that Terminal A is running the router and inspect its error output. |
 | `read` reports an invalid variable name | Use the Fish or Bash command in [Save the capture directory](#save-the-capture-directory). Keep `RUN_DIR` as the variable name and enter the path at the prompt. |
-| Capture or trace permission denied | Use the `sudo cat` or `sudo tail` commands above. Refresh `RUN_DIR` after a restart. |
+| Capture or trace unavailable | Check that you are in the project root and that `RUN_DIR` is the actual directory printed by this router run. New artifacts belong to the account that invoked `sudo`; direct root runs remain root-owned. |
 | Ping fails while the router is running | Run `make lab-check`, inspect counters and recent traces, and check the intended config is running. |
 
 If you later want to connect an observation to its implementation, the TUN

@@ -115,7 +115,7 @@ cable discovery.
 Use the actual directory printed by your router, for example:
 
 ```sh
-sudo ./bin/goodnews dashboard --run artifacts/runs/r1-885399003
+./bin/goodnews dashboard --run artifacts/runs/r1-885399003
 ```
 
 Replace the example number with your real run directory. Saved-run mode reads
@@ -137,8 +137,10 @@ intact.
 - Use a terminal at least 80 columns wide and 24 rows high. Smaller windows
   show a resize message while history keeps indexing. Resize at any time.
 - `NO_COLOR` disables color; text labels and selection markers remain.
-- Files keep their private permissions. Use sudo for root-owned lab runs;
-  user-readable copies and the demo need no sudo.
+- New artifacts belong to the account that invoked `sudo`, with directories
+  set to `700` and files to `600`. Saved-run browsing needs no sudo for your
+  own runs. Live attachment still uses sudo for the restricted management
+  socket. Direct root runs keep root-owned artifacts.
 - Partial trailing JSON lines wait for completion. Malformed records produce
   a notice while valid history stays readable. Reopen a run if a file is truncated.
 

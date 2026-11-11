@@ -22,13 +22,22 @@ type Observer struct {
 }
 
 func OpenObserver(c Config) (_ *Observer, err error) {
-	if err := os.MkdirAll(c.Observability.Directory, 0700); err != nil {
+	owner, err := resolveArtifactOwner(os.Geteuid(), os.Getenv("SUDO_UID"), os.Getenv("SUDO_GID"))
+	if err != nil {
+		return nil, err
+	}
+	if err := owner.mkdirAll(c.Observability.Directory); err != nil {
 		return nil, err
 	}
 	dir, err := os.MkdirTemp(c.Observability.Directory, c.RouterID+"-")
 	if err != nil {
 		return nil, err
 	}
+	runDir, err := os.Open(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer runDir.Close()
 	absolute, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
@@ -42,20 +51,24 @@ func OpenObserver(c Config) (_ *Observer, err error) {
 			_ = o.Close()
 		}
 	}()
-	if o.trace, err = os.OpenFile(filepath.Join(dir, "trace.jsonl"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600); err != nil {
+	if o.trace, err = owner.create(filepath.Join(dir, "trace.jsonl")); err != nil {
 		return nil, err
 	}
-	if o.counters, err = os.OpenFile(filepath.Join(dir, "counters.jsonl"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600); err != nil {
+	if o.counters, err = owner.create(filepath.Join(dir, "counters.jsonl")); err != nil {
 		return nil, err
 	}
-	if o.fib, err = os.OpenFile(filepath.Join(dir, "fib.jsonl"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600); err != nil {
+	if o.fib, err = owner.create(filepath.Join(dir, "fib.jsonl")); err != nil {
 		return nil, err
 	}
 	manifest, err := json.MarshalIndent(o.info, "", "  ")
 	if err != nil {
 		return nil, err
 	}
-	if err = os.WriteFile(filepath.Join(dir, "run.json"), append(manifest, '\n'), 0600); err != nil {
+	manifestFile, err := owner.create(filepath.Join(dir, "run.json"))
+	if err != nil {
+		return nil, err
+	}
+	if err = errors.Join(writeAll(manifestFile, append(manifest, '\n')), manifestFile.Close()); err != nil {
 		return nil, err
 	}
 	table, err := BuildTable(c, 1)
@@ -69,7 +82,7 @@ func OpenObserver(c Config) (_ *Observer, err error) {
 		return nil, err
 	}
 	for _, iface := range c.Interfaces {
-		f, openErr := os.OpenFile(filepath.Join(dir, iface.Name+".pcap"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		f, openErr := owner.create(filepath.Join(dir, iface.Name+".pcap"))
 		if openErr != nil {
 			return nil, openErr
 		}
@@ -77,6 +90,10 @@ func OpenObserver(c Config) (_ *Observer, err error) {
 		if err := WritePCAPHeader(f); err != nil {
 			return nil, err
 		}
+	}
+	// Publish the run to its owner only after all initial artifacts are ready.
+	if err := owner.apply(runDir); err != nil {
+		return nil, err
 	}
 	return o, nil
 }
