@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -29,12 +30,13 @@ func (r *Runtime) ManagementHandler() http.Handler {
 	})
 	mux.HandleFunc("/v1/interfaces", func(w http.ResponseWriter, req *http.Request) {
 		write(w, req, struct {
-			Interfaces  []Interface     `json:"interfaces"`
-			Protections map[string]bool `json:"effective_protections"`
+			Interfaces        []Interface     `json:"interfaces"`
+			Protections       map[string]bool `json:"effective_protections"`
+			HardwareAddresses map[string]MAC  `json:"hardware_addresses,omitempty"`
 		}{r.Engine.Config.Interfaces, map[string]bool{
 			"verify_ipv4_checksum": enabled(r.Engine.Config.Protections.VerifyIPv4Checksum),
 			"decrement_ttl":        enabled(r.Engine.Config.Protections.DecrementTTL),
-		}}, http.StatusOK)
+		}, r.hardwareAddresses()}, http.StatusOK)
 	})
 	mux.HandleFunc("/v1/routes", func(w http.ResponseWriter, req *http.Request) {
 		t := r.Engine.FIB.Load()
@@ -44,9 +46,47 @@ func (r *Runtime) ManagementHandler() http.Handler {
 		}{t.Version(), t.Routes()}, http.StatusOK)
 	})
 	mux.HandleFunc("/v1/counters", func(w http.ResponseWriter, req *http.Request) { write(w, req, r.Snapshot(), http.StatusOK) })
-	for _, subsystem := range []string{"arp", "neighbors", "lsdb"} {
+	mux.HandleFunc("/v1/arp", func(w http.ResponseWriter, req *http.Request) {
+		if len(r.ports) == 0 {
+			write(w, req, map[string]any{"enabled": false, "subsystem": "arp", "message": "ARP requires an Ethernet interface"}, http.StatusNotImplemented)
+			return
+		}
+		write(w, req, map[string]any{"enabled": true, "interfaces": r.ARPSnapshot(), "cache_lifetime_seconds": int(ARPCacheLifetime / time.Second), "retry_interval_seconds": int(ARPRetryInterval / time.Second), "max_attempts": ARPMaxAttempts, "max_neighbors_per_interface": ARPMaxNeighbors, "max_pending_per_interface": ARPMaxPending, "max_pending_per_neighbor": ARPMaxPendingPerNeighbor}, http.StatusOK)
+	})
+	mux.HandleFunc("/v1/impairments", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodGet {
+			write(w, req, r.Impairments(), http.StatusOK)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if req.Method != http.MethodPost {
+			w.Header().Set("Allow", "GET, POST")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		var command impairmentCommand
+		decoder := json.NewDecoder(http.MaxBytesReader(w, req.Body, 4096))
+		decoder.DisallowUnknownFields()
+		err := decoder.Decode(&command)
+		if err == nil {
+			var extra any
+			if decoder.Decode(&extra) != io.EOF {
+				err = fmt.Errorf("expected exactly one command")
+			}
+		}
+		if err == nil {
+			err = r.changeImpairment(command)
+		}
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(r.Impairments())
+	})
+	for _, subsystem := range []string{"neighbors", "lsdb"} {
 		mux.HandleFunc("/v1/"+subsystem, func(w http.ResponseWriter, req *http.Request) {
-			write(w, req, map[string]any{"enabled": false, "subsystem": subsystem, "message": "not enabled in Stage 1"}, http.StatusNotImplemented)
+			write(w, req, map[string]any{"enabled": false, "subsystem": subsystem, "message": "requires Stage 4 routing protocols"}, http.StatusNotImplemented)
 		})
 	}
 	return mux

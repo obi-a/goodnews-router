@@ -30,14 +30,21 @@ type diskIndex struct {
 }
 
 func (d *diskIndex) append(r reference) error {
+	if err := d.writeAt(d.count, r); err != nil {
+		return err
+	}
+	d.count++
+	return nil
+}
+
+func (d *diskIndex) writeAt(row int64, r reference) error {
 	var b [refSize]byte
 	binary.LittleEndian.PutUint64(b[0:8], r.Key)
 	binary.LittleEndian.PutUint64(b[8:16], r.Offset)
 	binary.LittleEndian.PutUint64(b[16:24], r.Length)
-	if _, err := d.file.WriteAt(b[:], d.count*refSize); err != nil {
+	if _, err := d.file.WriteAt(b[:], row*refSize); err != nil {
 		return err
 	}
-	d.count++
 	return nil
 }
 
@@ -166,6 +173,7 @@ type Store struct {
 	Warnings               []string
 	trace, counters, fib   *logReader
 	events, counts, tables diskIndex
+	relations              diskIndex // Per event row: first child, last child, next sibling (row+1).
 	temporary              string
 	cache                  map[int64]*list.Element
 	lru                    *list.List
@@ -212,7 +220,7 @@ func OpenStore(directory string) (_ *Store, err error) {
 	if s.temporary, err = os.MkdirTemp("", "goodnews-history-"); err != nil {
 		return nil, err
 	}
-	for i, index := range []*diskIndex{&s.events, &s.counts, &s.tables} {
+	for i, index := range []*diskIndex{&s.events, &s.counts, &s.tables, &s.relations} {
 		index.file, err = os.OpenFile(filepath.Join(s.temporary, fmt.Sprintf("%d.index", i)), os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
 		if err != nil {
 			return nil, err
@@ -268,7 +276,7 @@ func (s *Store) Poll(limit int) error {
 			switch item.name {
 			case "trace":
 				var event goodnews.TraceRecord
-				if err := json.Unmarshal(line, &event); err != nil || event.Kind != "packet" || event.PacketID <= s.lastID {
+				if err := json.Unmarshal(line, &event); err != nil || (event.Kind != "packet" && event.Kind != "ethernet") || event.PacketID <= s.lastID {
 					s.warn(fmt.Sprintf("trace line %d is invalid or has unordered packet IDs", item.reader.line))
 					continue
 				}
@@ -278,6 +286,9 @@ func (s *Store) Poll(limit int) error {
 					s.Info.RouterID = event.RouterID
 				}
 				s.observePeers(event, s.events.count)
+				if err := s.indexRelation(event, s.events.count); err != nil {
+					return err
+				}
 			case "counters":
 				var value goodnews.CounterSnapshot
 				if err := json.Unmarshal(line, &value); err != nil || value.Kind != "counters" {
@@ -338,7 +349,9 @@ func (s *Store) Counters(event *goodnews.TraceRecord) *goodnews.CounterSnapshot 
 	id := uint64(0)
 	if event != nil {
 		id = event.PacketID
-		if event.ParentID != nil {
+		if event.CounterPacketID != nil {
+			id = *event.CounterPacketID
+		} else if event.ParentID != nil {
 			id = *event.ParentID
 		}
 	}
@@ -386,22 +399,65 @@ func (s *Store) Related(event goodnews.TraceRecord) []goodnews.TraceRecord {
 		return nil
 	}
 	var related []goodnews.TraceRecord
-	for ; row < s.Count(); row++ {
-		candidate, err := s.Event(row)
-		if err != nil {
-			break
+	if id != event.PacketID {
+		if parent, err := s.Event(row); err == nil {
+			related = append(related, parent)
 		}
-		if candidate.PacketID != id && (candidate.ParentID == nil || *candidate.ParentID != id) {
+	}
+	links, err := s.relations.at(row)
+	if err != nil {
+		return related
+	}
+	for next := links.Key; next != 0 && len(related) < 16; {
+		childRow := int64(next - 1)
+		candidate, err := s.Event(childRow)
+		if err != nil {
 			break
 		}
 		if candidate.PacketID != event.PacketID {
 			related = append(related, candidate)
 		}
-		if len(related) == 16 {
+		childLinks, err := s.relations.at(childRow)
+		if err != nil {
 			break
 		}
+		next = childLinks.Length
 	}
 	return related
+}
+
+// A disk-backed sibling list finds deferred completions even when many other
+// packets occur between parent and child, without scanning the entire history.
+func (s *Store) indexRelation(event goodnews.TraceRecord, row int64) error {
+	if err := s.relations.append(reference{}); err != nil {
+		return err
+	}
+	if event.ParentID == nil || *event.ParentID >= event.PacketID {
+		return nil
+	}
+	parentRow, ok := s.RowForID(*event.ParentID)
+	if !ok {
+		return nil
+	}
+	parent, err := s.relations.at(parentRow)
+	if err != nil {
+		return err
+	}
+	next := uint64(row + 1)
+	if parent.Key == 0 {
+		parent.Key = next
+	} else {
+		previous, err := s.relations.at(int64(parent.Offset - 1))
+		if err != nil {
+			return err
+		}
+		previous.Length = next
+		if err := s.relations.writeAt(int64(parent.Offset-1), previous); err != nil {
+			return err
+		}
+	}
+	parent.Offset = next
+	return s.relations.writeAt(parentRow, parent)
 }
 
 func (s *Store) observePeers(event goodnews.TraceRecord, row int64) {
@@ -469,7 +525,7 @@ func (s *Store) Close() error {
 		}
 	}
 	s.trace, s.counters, s.fib = nil, nil, nil
-	for _, d := range []*diskIndex{&s.events, &s.counts, &s.tables} {
+	for _, d := range []*diskIndex{&s.events, &s.counts, &s.tables, &s.relations} {
 		if d.file != nil {
 			errs = append(errs, d.file.Close())
 			d.file = nil

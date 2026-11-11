@@ -87,7 +87,11 @@ func OpenObserver(c Config) (_ *Observer, err error) {
 			return nil, openErr
 		}
 		o.captures[iface.Name] = f
-		if err := WritePCAPHeader(f); err != nil {
+		linkType := uint32(101)
+		if iface.Driver == "ethernet" {
+			linkType = 1
+		}
+		if err := writePCAPHeader(f, linkType); err != nil {
 			return nil, err
 		}
 	}
@@ -99,17 +103,24 @@ func OpenObserver(c Config) (_ *Observer, err error) {
 }
 
 func WritePCAPHeader(w io.Writer) error {
+	return writePCAPHeader(w, 101)
+}
+
+func writePCAPHeader(w io.Writer, linkType uint32) error {
 	header := make([]byte, 24)
 	binary.LittleEndian.PutUint32(header[0:4], 0xa1b2c3d4)
 	binary.LittleEndian.PutUint16(header[4:6], 2)
 	binary.LittleEndian.PutUint16(header[6:8], 4)
 	binary.LittleEndian.PutUint32(header[16:20], 65535)
-	binary.LittleEndian.PutUint32(header[20:24], 101) // LINKTYPE_RAW, not the platform-specific DLT value.
+	if linkType == 1 {
+		binary.LittleEndian.PutUint32(header[16:20], 65549)
+	}
+	binary.LittleEndian.PutUint32(header[20:24], linkType) // LINKTYPE_RAW=101, Ethernet=1.
 	return writeAll(w, header)
 }
 
 func WritePCAPPacket(w io.Writer, at time.Time, packet []byte) error {
-	if len(packet) > 65535 {
+	if len(packet) > 65549 {
 		return fmt.Errorf("pcap packet exceeds snap length")
 	}
 	header := make([]byte, 16)

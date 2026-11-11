@@ -41,13 +41,18 @@ type CounterSnapshot struct {
 }
 
 type Runtime struct {
-	Engine   *Engine
-	Info     RunInfo
-	links    map[string]Link
-	observer PacketObserver
-	nextID   atomic.Uint64
-	mu       sync.RWMutex
-	counters CounterSnapshot
+	Engine       *Engine
+	Info         RunInfo
+	links        map[string]Link
+	observer     PacketObserver
+	nextID       atomic.Uint64
+	mu           sync.RWMutex
+	counters     CounterSnapshot
+	ports        map[string]*ethernetPort
+	impairmentMu sync.RWMutex
+	impairments  map[string]Impairment
+	delayed      []delayedPacket
+	arpRequests  []arpRequest
 }
 
 func NewRuntime(engine *Engine, links map[string]Link, observer PacketObserver) (*Runtime, error) {
@@ -61,7 +66,17 @@ func NewRuntime(engine *Engine, links map[string]Link, observer PacketObserver) 
 		}
 		owned[iface.Name] = links[iface.Name]
 	}
-	r := &Runtime{Engine: engine, links: owned, observer: observer, counters: initialCounters(engine.Config)}
+	r := &Runtime{Engine: engine, links: owned, observer: observer, counters: initialCounters(engine.Config), ports: map[string]*ethernetPort{}, impairments: map[string]Impairment{}}
+	for _, iface := range engine.Config.Interfaces {
+		r.impairments[iface.Name] = Impairment{}
+		if iface.Driver == "ethernet" {
+			link, ok := owned[iface.Name].(interface{ HardwareAddr() MAC })
+			if !ok || !link.HardwareAddr().Unicast() {
+				return nil, fmt.Errorf("interface %s requires an Ethernet link with a unicast MAC", iface.Name)
+			}
+			r.ports[iface.Name] = &ethernetPort{mac: link.HardwareAddr(), prefix: netip.MustParsePrefix(iface.Address), arp: newARPCache()}
+		}
+	}
 	if history, ok := observer.(interface{ RunInfo() RunInfo }); ok {
 		r.Info = history.RunInfo()
 	}
@@ -91,6 +106,8 @@ func (r *Runtime) Run(ctx context.Context) error {
 		err    error
 	}
 	ctx, cancel := context.WithCancel(ctx)
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
 	packets := make(chan received, 256)
 	var workers sync.WaitGroup
 	for name, link := range r.links {
@@ -120,10 +137,14 @@ func (r *Runtime) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return r.shutdownPending()
+		case now := <-ticker.C:
+			if err := r.tickLinks(now); err != nil {
+				return err
+			}
 		case p := <-packets:
 			if ctx.Err() != nil {
-				return nil
+				return r.shutdownPending()
 			}
 			if p.err != nil {
 				return fmt.Errorf("receive on %s: %w", p.iface, p.err)
@@ -138,9 +159,18 @@ func (r *Runtime) Run(ctx context.Context) error {
 // process is called only by the forwarding worker; all observer writes have a
 // stable order. Management queries read independent counter snapshots.
 func (r *Runtime) process(ingress string, packet []byte) error {
+	if r.ports[ingress] != nil {
+		return r.processEthernet(ingress, packet)
+	}
+	return r.processIP(ingress, packet)
+}
+
+func (r *Runtime) processIP(ingress string, packet []byte) error {
 	at := time.Now().UTC()
-	if err := r.observer.Capture(ingress, at, packet); err != nil {
-		return fmt.Errorf("ingress capture: %w", err)
+	if r.ports[ingress] == nil {
+		if err := r.observer.Capture(ingress, at, packet); err != nil {
+			return fmt.Errorf("ingress capture: %w", err)
+		}
 	}
 	d := r.Engine.Process(ingress, packet)
 	if history, ok := r.observer.(interface{ RecordFIB(*Table) error }); ok {
@@ -164,10 +194,15 @@ func (r *Runtime) process(ingress string, packet []byte) error {
 	r.mu.Unlock()
 	generated := []TraceRecord{}
 	for _, output := range d.Outputs {
-		err := r.links[output.Interface].Send(output.Packet, output.NextHop)
+		queued, err := r.sendIP(waitingPacket{Output: output, ParentID: d.Trace.PacketID}, time.Now())
+		if fatal := observationError(err); fatal != nil {
+			return fatal
+		}
 		if !output.Generated {
 			if err != nil {
-				d.Trace.Action, d.Trace.DropReason, d.Trace.Error = "drop", "send_failed", err.Error()
+				d.Trace.Action, d.Trace.DropReason, d.Trace.Error = "drop", sendDropReason(err), err.Error()
+			} else if queued != "" {
+				d.Trace.Action = queued
 			}
 		} else {
 			h, _ := ParseIPv4(output.Packet, true)
@@ -176,26 +211,23 @@ func (r *Runtime) process(ingress string, packet []byte) error {
 				Timestamp: time.Now().UTC(), Egress: output.Interface, Length: len(output.Packet), Source: &h.Source, Destination: &h.Destination,
 				Protocol: &h.Protocol, ICMP: DescribeICMP(h), TTLAfter: &h.TTL, FIBVersion: d.Trace.FIBVersion, Matches: output.Matches, Winner: &output.Route, Action: "generated"}
 			if err != nil {
-				record.Action, record.DropReason, record.Error = "drop", "send_failed", err.Error()
+				record.Action, record.DropReason, record.Error = "drop", sendDropReason(err), err.Error()
+			} else if queued != "" {
+				record.Action = queued
 			}
 			generated = append(generated, record)
 		}
 		r.mu.Lock()
 		if err != nil {
 			r.counters.Dropped++
-			r.counters.DropReasons["send_failed"]++
-		} else {
+			r.counters.DropReasons[sendDropReason(err)]++
+		} else if queued == "" {
 			r.counters.Transmitted++
 			ic := r.counters.Interfaces[output.Interface]
 			ic.Transmitted++
 			r.counters.Interfaces[output.Interface] = ic
 		}
 		r.mu.Unlock()
-		if err == nil {
-			if err := r.observer.Capture(output.Interface, time.Now().UTC(), output.Packet); err != nil {
-				return fmt.Errorf("egress capture: %w", err)
-			}
-		}
 	}
 	if err := r.observer.Trace(d.Trace); err != nil {
 		return fmt.Errorf("packet trace: %w", err)
@@ -212,7 +244,7 @@ func (r *Runtime) process(ingress string, packet []byte) error {
 	if err := r.observer.Counters(r.Snapshot()); err != nil {
 		return fmt.Errorf("counter export: %w", err)
 	}
-	return nil
+	return r.flushARPRequests()
 }
 
 func CloseLinks(links map[string]Link) error {

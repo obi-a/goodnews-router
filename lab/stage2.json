@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "router_id": "r1",
+  "interfaces": [
+    {
+      "name": "left",
+      "address": "10.0.0.1/24",
+      "mtu": 1500,
+      "driver": "ethernet",
+      "device": "left0"
+    },
+    {
+      "name": "right",
+      "address": "10.0.1.1/24",
+      "mtu": 1500,
+      "driver": "ethernet",
+      "device": "right0"
+    }
+  ],
+  "routes": [],
+  "observability": {
+    "directory": "artifacts/runs",
+    "socket": "/run/goodnews-lab-stage2/r1.sock"
+  },
+  "protections": {
+    "verify_ipv4_checksum": true,
+    "decrement_ttl": true
+  }
+}

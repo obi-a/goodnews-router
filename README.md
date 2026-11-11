@@ -1,8 +1,9 @@
 # goodnews
 
 A small IPv4 router for learning the network and control planes in Kurose and
-Ross. Stage 1 implements forwarding over Linux TUN devices. Ethernet, ARP,
-distributed routing, fragmentation, NAT, and a controller are later stages.
+Ross. Stage 1 forwards over Linux TUN devices; Stage 2 adds Ethernet over
+veth, ARP, and runtime fault controls. Distributed routing, fragmentation,
+NAT, and a controller are later stages.
 
 The router owns its addresses in Go. It does not assign them to kernel
 interfaces. The lab disables kernel forwarding, and traffic stops when the
@@ -11,6 +12,9 @@ process stops.
 ![Interactive goodnews dashboard showing topology, counters, the forwarding table, and scrollable packet history](docs/images/dashboard.png)
 
 Choose a guide to inspect the router:
+
+- [Stage 2 Ethernet lab](docs/stage2.md): route over virtual Ethernet cables,
+  watch ARP, and change delay, loss, corruption, and link state with `badnews`.
 
 - [Dashboard guide](docs/dashboard.md): watch topology, counters, forwarding
   decisions, and scrollable packet history in the terminal.
@@ -130,7 +134,8 @@ Each run prints a fresh directory under `artifacts/runs`. It contains:
 - `counters.jsonl`: snapshots after each processed packet.
 - `run.json`: startup identity, interfaces, and effective protections.
 - `fib.jsonl`: the initial forwarding table and each version used by a packet.
-- `left.pcap` and `right.pcap`: raw IPv4 packets received and successfully sent.
+- `left.pcap` and `right.pcap`: received and successfully sent packets, using
+  raw IPv4 for TUN or full Ethernet frames (including ARP) for Ethernet.
 
 When started through `sudo`, the router assigns new artifact directories and
 files to the invoking account. Directories use `700` and files use `600`, so
@@ -145,10 +150,11 @@ Capture files include both directions; use addresses and timestamps to correlate
 them with the trace. The trace includes the FIB version and every matching route in
 longest-prefix-first order. Generated replies have their own IDs and routes.
 
-The read-only HTTP API runs on an owner-only Unix socket. `show` supports
-`interfaces`, `routes`, and `counters`; `arp`, `neighbors`, and `lsdb` explicitly
-report that they are not enabled in Stage 1. Without `--json`, output is
-indented JSON. The interface view shows effective protection settings.
+The HTTP API runs on an owner-only Unix socket. `show` provides read-only
+`interfaces`, `routes`, `counters`, `arp`, and `impairments` views. ARP requires
+an Ethernet interface; `neighbors` and `lsdb` require Stage 4. Only the
+`/v1/impairments` endpoint accepts changes, through `badnews`. Without `--json`,
+output is indented JSON. The interface view shows protections and Ethernet MACs.
 
 Drops include rejected incoming packets and failed generated packets. For
 example, an expired incoming packet and a failed attempt to send its ICMP error
@@ -186,15 +192,19 @@ to false. Omitted switches default to true. Length checks always remain active.
 
 ## Fault experiments and badnews
 
-`badnews` is planned for Stage 2 and is not part of the current build. Stage 1
-already supports malformed-packet, TTL, missing-route, protection-switch and
-router-outage experiments through `goodnews craft`, config copies and router
-restarts. Follow the [Stage 1 fault exercises](docs/stage1-experiments.md#stage-1-faults-and-badnews)
-for commands and expected dashboard results. Runtime delay/loss/link controls
-remain future work; routing-cost experiments apply when Stage 4 adds routing
-protocols.
+`badnews` now provides runtime link state, delay, loss, corruption, and reset
+controls. Follow the [Stage 2 guide](docs/stage2.md) for commands and expected
+observations. The [Stage 1 fault exercises](docs/stage1-experiments.md#stage-1-faults-and-badnews)
+remain useful for malformed packets, TTL, missing routes, and protection switches.
+Routing-cost experiments apply when Stage 4 adds routing protocols.
 
 ## Full acceptance check
+
+Run `make integration2` for Ethernet/ARP, caching, fault controls, captures,
+and stopped-router checks. Evidence is saved under `artifacts/stage2-*`.
+See [Stage 2](docs/stage2.md) for its separate namespace setup.
+
+For the TUN lab:
 
 ```sh
 make integration

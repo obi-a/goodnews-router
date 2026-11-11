@@ -98,8 +98,11 @@ func (c Config) Validate() error {
 		if iface.MTU < 68 || iface.MTU > 65535 {
 			return fmt.Errorf("interface %s MTU must be 68..65535", iface.Name)
 		}
-		if iface.Driver != "tun" {
-			return fmt.Errorf("interface %s: Stage 1 supports driver tun only", iface.Name)
+		if iface.Driver != "tun" && iface.Driver != "ethernet" {
+			return fmt.Errorf("interface %s: driver must be tun or ethernet", iface.Name)
+		}
+		if iface.Driver == "ethernet" && iface.NetNS != "" {
+			return fmt.Errorf("interface %s: Ethernet devices must be in the router namespace (omit netns)", iface.Name)
 		}
 		if !safeName(iface.Device) || len(iface.Device) > 15 {
 			return fmt.Errorf("invalid device name %q", iface.Device)

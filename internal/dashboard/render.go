@@ -49,6 +49,15 @@ func number(n *uint8) string {
 }
 
 func packetName(t goodnews.TraceRecord) string {
+	if t.ARP != nil {
+		if t.ARP.Operation == 1 {
+			return "ARP request"
+		}
+		return "ARP reply"
+	}
+	if t.Kind == "ethernet" {
+		return fmt.Sprintf("Ethernet 0x%04x", t.EtherType)
+	}
 	if t.ICMP != nil {
 		switch t.ICMP.Type {
 		case 0:
@@ -290,7 +299,13 @@ func detailLines(s *Store, t *goodnews.TraceRecord, counters *goodnews.CounterSn
 		lines = append(lines, fmt.Sprintf("IP protocol number: %d", *t.Protocol))
 	}
 	if t.ParentID != nil {
-		lines = append(lines, fmt.Sprintf("Generated while handling ingress #%d; counters include that completed operation.", *t.ParentID))
+		lines = append(lines, fmt.Sprintf("Related to ingress #%d; counters include that completed operation.", *t.ParentID))
+	}
+	if t.SourceMAC != "" {
+		lines = append(lines, fmt.Sprintf("Ethernet: %s -> %s | EtherType 0x%04x", t.SourceMAC, t.DestinationMAC, t.EtherType))
+	}
+	if t.ARP != nil {
+		lines = append(lines, fmt.Sprintf("ARP: %s is at %s; target %s (%s)", t.ARP.SenderIP, t.ARP.SenderMAC, t.ARP.TargetIP, t.ARP.TargetMAC))
 	}
 	if t.ICMP != nil {
 		lines = append(lines, fmt.Sprintf("ICMP type=%d code=%d", t.ICMP.Type, t.ICMP.Code))
