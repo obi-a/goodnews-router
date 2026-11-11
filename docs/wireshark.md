@@ -59,24 +59,25 @@ read -r -p 'Artifact directory from Terminal A: ' RUN_DIR
 Every router restart creates a new directory. Update `RUN_DIR` after a restart.
 Continue using this terminal so the saved variable is available.
 
-## 3. Copy and open the captures
+## 3. Open the captures
 
-Once the pings finish, make copies you can open as your regular user:
+Once the pings finish, check the actual run directory from the project root:
 
 ```sh
-mkdir -p "$HOME/goodnews-captures"
-sudo cat "$RUN_DIR/left.pcap" > "$HOME/goodnews-captures/left.pcap"
-sudo cat "$RUN_DIR/right.pcap" > "$HOME/goodnews-captures/right.pcap"
+ls -1 artifacts/runs
+ls "$RUN_DIR"
 ```
 
-The originals are private files owned by the router's user, which is root in
-this lab. `sudo cat` reads them; your shell writes the copies in your home
-directory as your regular user.
+You should see `left.pcap` and `right.pcap` in your run. New artifacts belong
+to the account that invoked `sudo`: directories use `700` and files use `600`.
+This keeps captures private while allowing you to open them as your regular
+user. Direct root runs keep root ownership. Existing directories keep their
+ownership and permissions.
 
 Open the left capture:
 
 ```sh
-wireshark -r "$HOME/goodnews-captures/left.pcap" &
+wireshark -r "$RUN_DIR/left.pcap" &
 ```
 
 `-r` opens a saved capture, and `&` keeps the terminal available for more lab
@@ -88,7 +89,7 @@ There is no need to select a live capture interface for these files.
 To compare both sides side by side, open a second window:
 
 ```sh
-wireshark -r "$HOME/goodnews-captures/right.pcap" &
+wireshark -r "$RUN_DIR/right.pcap" &
 ```
 
 `left.pcap` contains traffic received and successfully sent on the h1 side;
@@ -97,9 +98,9 @@ Each file includes both directions, rather than requests in one file and
 replies in the other. These TUN captures contain IPv4 packets without Ethernet
 headers.
 
-The copies are snapshots. After generating more traffic, repeat the three copy
-commands above and reopen the files. An open copy does not receive new packets
-from the running router.
+After generating more traffic, use **File → Reload** or reopen the files to
+read newly recorded packets. Opening a saved capture does not start a live
+capture in Wireshark.
 
 ## 4. Compare a forwarded ping request
 
@@ -158,7 +159,7 @@ sudo ip netns exec gn-h1 ./bin/goodnews craft --interface gn0 --bad-checksum
 ```
 
 `craft` sends one ICMP Echo Request from h1 to h2 and is silent on successful
-transmission. Repeat the copy commands in section 3, then reopen both files.
+transmission. Reload or reopen both captures to see the new packet.
 
 In Wireshark, open **Edit → Preferences → Protocols → IPv4**, enable
 **Validate the IPv4 checksum if possible**, and apply the setting. This

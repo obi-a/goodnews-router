@@ -44,8 +44,8 @@ env GOTOOLCHAIN=auto make fuzz
 `check` validates configuration without opening interfaces or requiring root.
 If make is unavailable, use `go build -o bin/goodnews ./cmd/goodnews`,
 `go test -race . ./cmd/... ./drivers/... ./internal/...`, and
-`go vet . ./cmd/... ./drivers/... ./internal/...` directly. These patterns keep Go from
-entering private, root-owned lab captures under `artifacts/`.
+`go vet . ./cmd/... ./drivers/... ./internal/...` directly. These patterns keep
+package discovery in source directories, separate from lab artifacts.
 
 ## Run the first lab
 
@@ -132,9 +132,15 @@ Each run prints a fresh directory under `artifacts/runs`. It contains:
 - `fib.jsonl`: the initial forwarding table and each version used by a packet.
 - `left.pcap` and `right.pcap`: raw IPv4 packets received and successfully sent.
 
-Decode private pcaps with `sudo cat FILE | tcpdump -nn -r -`, or copy them to
-a location you can read before opening them in Wireshark. Streaming an already
-opened file avoids tcpdump's privilege dropping and pathname restrictions.
+When started through `sudo`, the router assigns new artifact directories and
+files to the invoking account. Directories use `700` and files use `600`, so
+your account can browse captures while other ordinary users cannot read them.
+Without `sudo`, artifacts belong to the process account, including direct root
+execution. Existing directories keep their ownership and permissions.
+
+Open captures directly in Wireshark, or decode them with
+`cat FILE | tcpdump -nn -r -`. Streaming an already opened file avoids
+tcpdump's privilege dropping and pathname restrictions.
 Capture files include both directions; use addresses and timestamps to correlate
 them with the trace. The trace includes the FIB version and every matching route in
 longest-prefix-first order. Generated replies have their own IDs and routes.

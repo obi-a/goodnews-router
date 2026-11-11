@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import shutil
 import signal
+import stat
 import struct
 import subprocess
 import tempfile
@@ -71,13 +72,24 @@ def packets(path):
 def main():
     if os.geteuid() != 0:
         raise SystemExit("run with sudo after make build")
+    owner = (int(os.environ.get("SUDO_UID", os.geteuid())),
+             int(os.environ.get("SUDO_GID", os.getegid())))
+    if any(value < 0 or value >= 2**32 - 1 for value in owner):
+        raise SystemExit("invalid SUDO_UID or SUDO_GID")
     for tool in ("ip", "sysctl", "ethtool", "ping", "traceroute", "tcpdump"):
         if not shutil.which(tool):
             raise SystemExit(f"missing host tool: {tool}")
     if not BIN.is_file():
         raise SystemExit("run make build first")
-    (ROOT / "artifacts").mkdir(exist_ok=True)
+    artifacts = ROOT / "artifacts"
+    try:
+        artifacts.mkdir(mode=0o700)
+    except FileExistsError:
+        pass
+    else:
+        os.chown(artifacts, *owner)
     evidence = Path(tempfile.mkdtemp(prefix="stage1-", dir=ROOT / "artifacts"))
+    os.chown(evidence, *owner)
     print(f"Acceptance evidence: {evidence}", flush=True)
     base = json.loads((ROOT / "lab/stage1.json").read_text())
     process = None
@@ -107,7 +119,15 @@ def main():
         wait_for(ready, "management socket")
         # Creating network sockets now also exercises namespace restoration.
         assert show("interfaces")["interfaces"][0]["name"] == "left"
-        return next(directory.iterdir())
+        run = next(directory.iterdir())
+        for path in (directory, run, *run.iterdir()):
+            info = path.stat()
+            assert (info.st_uid, info.st_gid) == owner, f"incorrect artifact owner: {path}"
+            expected_mode = 0o700 if path.is_dir() else 0o600
+            assert stat.S_IMODE(info.st_mode) == expected_mode, f"incorrect artifact permissions: {path}"
+        assert Path(SOCKET).stat().st_uid == 0, "management socket must remain root-owned"
+        assert stat.S_IMODE(Path(SOCKET).stat().st_mode) == 0o600
+        return run
 
     def stop():
         nonlocal process, logfile
@@ -219,8 +239,17 @@ def main():
         try:
             stop()
         finally:
-            if created:
-                command("bash", SCRIPT, "down")
+            try:
+                if created:
+                    command("bash", SCRIPT, "down")
+            finally:
+                # Include harness-created logs and configs, even on failure.
+                # Limit ownership changes to this fresh evidence directory.
+                for path in (*evidence.rglob("*"), evidence):
+                    if path.is_symlink():
+                        continue
+                    path.chmod(0o700 if path.is_dir() else 0o600)
+                    os.chown(path, *owner)
 
 
 if __name__ == "__main__":

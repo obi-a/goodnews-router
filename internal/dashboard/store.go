@@ -201,7 +201,7 @@ func OpenStore(directory string) (_ *Store, err error) {
 		s.Info.RunID = filepath.Base(abs)
 	}
 	if s.trace, err = openLog(filepath.Join(abs, "trace.jsonl"), false); err != nil {
-		return nil, fmt.Errorf("open trace (use sudo for private lab runs): %w", err)
+		return nil, fmt.Errorf("open trace (check run directory and ownership): %w", err)
 	}
 	if s.counters, err = openLog(filepath.Join(abs, "counters.jsonl"), true); err != nil {
 		return nil, err

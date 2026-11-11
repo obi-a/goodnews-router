@@ -170,7 +170,7 @@ sudo ./bin/goodnews show routes --socket /run/goodnews-lab-stage1/r1.sock
 sudo ip netns exec gn-h1 ./bin/goodnews craft --interface gn0 --dst 10.99.0.9
 sudo ip netns exec gn-h1 ./bin/goodnews craft --interface gn0 --dst 10.20.99.9
 sudo ip netns exec gn-h1 ./bin/goodnews craft --interface gn0 --dst 10.20.30.40
-sudo cat "$RUN_DIR/trace.jsonl" | python3 -c '
+cat "$RUN_DIR/trace.jsonl" | python3 -c '
 import json, sys
 destinations = {"10.99.0.9", "10.20.99.9", "10.20.30.40"}
 for line in sys.stdin:
@@ -236,7 +236,7 @@ Then run in either shell:
 ```sh
 sudo ./bin/goodnews show interfaces --socket /run/goodnews-lab-stage1/r1.sock
 sudo ip netns exec gn-h1 ping -n -c 3 -W 1 10.0.1.2
-sudo cat "$RUN_DIR/right.pcap" | tcpdump -nn -vv -r - 'icmp and src host 10.0.0.2 and dst host 10.0.1.2'
+cat "$RUN_DIR/right.pcap" | tcpdump -nn -vv -r - 'icmp and src host 10.0.0.2 and dst host 10.0.1.2'
 ```
 
 Expect `decrement_ttl: false` in the effective settings. With host TTL 64, the
@@ -289,8 +289,8 @@ Then run in either shell:
 sudo ./bin/goodnews show interfaces --socket /run/goodnews-lab-stage1/r1.sock
 sudo ip netns exec gn-h1 ./bin/goodnews craft --interface gn0 --bad-checksum
 sudo ./bin/goodnews show counters --socket /run/goodnews-lab-stage1/r1.sock
-sudo cat "$RUN_DIR/left.pcap" | tcpdump -nn -vv -r - 'icmp and src host 10.0.0.2'
-sudo cat "$RUN_DIR/right.pcap" | tcpdump -nn -vv -r - 'icmp and src host 10.0.0.2'
+cat "$RUN_DIR/left.pcap" | tcpdump -nn -vv -r - 'icmp and src host 10.0.0.2'
+cat "$RUN_DIR/right.pcap" | tcpdump -nn -vv -r - 'icmp and src host 10.0.0.2'
 ```
 
 Expect `verify_ipv4_checksum: false` and the invalid packet to be forwarded,

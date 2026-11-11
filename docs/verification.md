@@ -1,5 +1,26 @@
 # Verification record
 
+## Artifact ownership (2026-11-10)
+
+New router artifacts use the account identified by `SUDO_UID` and `SUDO_GID`
+when the router runs as root through sudo. Ordinary execution and direct root
+execution retain process ownership. Newly created parent directories and run
+directories stay private (`700`), and captures and logs stay private (`600`).
+Existing directories and management-socket permissions are unchanged.
+
+Race-enabled tests, vet, and build passed. Tests cover owner selection, invalid
+sudo IDs, ordinary-user execution, new parent directories, all six artifact
+files, and preservation of existing parent permissions. The root-only test
+also checks access as the invoking account and denial for another account.
+That test was skipped here: outside the sandbox, sudo requires interactive
+authentication. Full privileged networking acceptance remains pending.
+
+The acceptance harness now checks artifact owners and modes and verifies that
+the management socket remains root-owned with mode `600`. Its own evidence
+files are also assigned to the invoking account, including on failure.
+Python parsing, 79 command blocks in each of Bash and Fish, and 31 local
+documentation links passed validation.
+
 Stage 1 implementation checks were run on 2026-11-09. These results distinguish
 tests of packet decisions from observations on actual Linux interfaces.
 
