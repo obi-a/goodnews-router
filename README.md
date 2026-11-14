@@ -5,6 +5,10 @@ Ross. Stage 1 forwards over Linux TUN devices; Stage 2 adds Ethernet over
 veth, ARP, and runtime fault controls. Distributed routing, fragmentation,
 NAT, and a controller are later stages.
 
+Stage 3 adds reversible setup for two unused physical Ethernet ports, with
+Linux, Windows, and macOS endpoint instructions. Physical hardware acceptance
+is a separate gate; Wi-Fi can remain connected for management.
+
 The router owns its addresses in Go. It does not assign them to kernel
 interfaces. The lab disables kernel forwarding, and traffic stops when the
 process stops.
@@ -13,6 +17,10 @@ process stops.
 
 Choose a guide to inspect the router:
 
+- [Stage 3 physical Ethernet lab](docs/stage3.md): connect physical Linux,
+  Windows, or macOS hosts, then restore the Ubuntu ports and endpoint settings.
+- [Continuous integration](docs/ci.md): automated coverage, saved evidence,
+  local checks, and the required merge check.
 - [Stage 2 Ethernet lab](docs/stage2.md): route over virtual Ethernet cables,
   watch ARP, and change delay, loss, corruption, and link state with `badnews`.
 

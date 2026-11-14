@@ -178,3 +178,40 @@ validation drops, TTL/route ICMP responses, local ICMP rejection and forwarding
 of transit ICMP with an invalid transport checksum. These checks used the
 forwarding engine directly; outage and namespace-interface observations remain
 manual lab exercises.
+
+## CI and Stage 3 implementation (2026-11-13)
+
+Added CI for both binaries, all source packages, race-enabled tests with
+coverage, vet, module verification, source/workflow syntax, Python lifecycle
+tests, both fuzz targets, and all three namespace acceptance targets. CI also
+runs the root-only ownership test and imports actual acceptance JSONL into a
+disposable PostgreSQL service. The stable `CI required` aggregate must be
+enabled in repository branch protection after the workflow's first hosted run;
+this implementation has not changed remote repository settings.
+
+Local build/race/vet/module/source checks and both 10-second fuzz targets passed.
+The pinned actionlint 1.7.12 validator accepted the workflow. Python tests cover
+setup rollback, recovery across cleanup failures, missing/replaced adapters,
+namespace/process ownership, unexpected files, subnet conflicts, offload
+dependency restoration, and NetworkManager exclusion ownership.
+
+A disposable, unprivileged PostgreSQL 18 server under `/tmp` verified import
+and comparison of the existing dashboard fixture (seven trace records and six
+counter snapshots), plus a separate JSON escaping case. The server was stopped
+and its temporary database removed. The CI service uses PostgreSQL 17; its
+fresh acceptance evidence import remains to be exercised on GitHub.
+
+The physical Stage 3 lifecycle selects unused Ethernet ports, excludes them
+from NetworkManager, moves them into an isolated router namespace, and records
+settings for restoration. The synthetic acceptance harness uses veth devices
+and an injected NetworkManager backend; it does not certify hardware. Linux,
+Windows, and macOS endpoint setup and restoration are documented in stage3.md.
+The existing forwarding implementation and Stage 1/2 lab interfaces are intact.
+
+Privileged networking acceptance and the root-only ownership test were not run
+in this session: host sudo requires interactive authentication, Docker access
+is unavailable, and isolated user-namespace creation was denied by the host.
+No physical Ethernet adapters were available for the hardware gate. Run
+`make integration`, `make integration2`, and `make integration3` on a privileged
+host, then complete the physical guide and retain the resulting evidence.
+No passing Stage 3 hardware or hosted CI result is claimed here.

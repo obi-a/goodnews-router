@@ -1,3 +1,4 @@
 /bin/
 /artifacts/
 /coverage.out
+__pycache__/
