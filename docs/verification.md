@@ -215,3 +215,23 @@ No physical Ethernet adapters were available for the hardware gate. Run
 `make integration`, `make integration2`, and `make integration3` on a privileged
 host, then complete the physical guide and retain the resulting evidence.
 No passing Stage 3 hardware or hosted CI result is claimed here.
+
+## Hosted CI validation (2026-11-14)
+
+[The full CI run for commit 76d5b9b](https://github.com/obi-a/goodnews-router/actions/runs/43634881764)
+passed on GitHub-hosted Ubuntu 24.04 runners: both binary builds, race-enabled
+tests, vet/source/workflow checks, both fuzz targets, Stage 1 TUN acceptance,
+the root-only artifact ownership test, PostgreSQL 17 import of fresh networking
+evidence, Stage 2 Ethernet/ARP/impairment acceptance, and Stage 3 synthetic
+lifecycle acceptance. The `CI required` aggregate passed. Each networking job
+retained its evidence as a workflow artifact.
+
+The first hosted run exposed an ordering error in the existing Stage 2 harness:
+it inspected the management socket after clean shutdown had removed it. The
+ownership/mode assertion now runs before shutdown; the stopped-router and
+cleanup checks remain in place. No forwarding behavior changed.
+
+This closes the automated Stage 1 and Stage 2 privileged namespace gates.
+Stage 3 physical adapters, real NetworkManager behavior, and Windows/macOS/Linux
+physical endpoint acceptance remain separate pending gates. Branch protection
+still needs the `CI required` check enabled by a repository administrator.
