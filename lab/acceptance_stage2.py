@@ -158,6 +158,8 @@ def main():
         host("gn2-h1", "ping", "-n", "-c", "1", "-W", "4", "10.0.1.99", ok=False)
         wait_for(lambda: show("counters")["drop_reasons"].get("arp_timeout", 0) > before, "ARP timeout")
         logged("bash", SCRIPT, "check")
+        socket_info = Path(SOCKET).stat()
+        assert socket_info.st_uid == 0 and stat.S_IMODE(socket_info.st_mode) == 0o600
         stop()
         traces = [json.loads(line) for line in (run / "trace.jsonl").read_text().splitlines()]
         ids = [t["packet_id"] for t in traces]
@@ -188,7 +190,6 @@ def main():
             info = path.stat()
             assert (info.st_uid, info.st_gid) == owner
             assert stat.S_IMODE(info.st_mode) == (0o700 if path.is_dir() else 0o600)
-        assert Path(SOCKET).stat().st_uid == 0 and stat.S_IMODE(Path(SOCKET).stat().st_mode) == 0o600
         assert ping(ok=False).returncode != 0, "kernel bypass: stopped router still forwards"
         logged("bash", SCRIPT, "down")
         created = False
