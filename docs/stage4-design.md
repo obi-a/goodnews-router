@@ -1,7 +1,7 @@
 # Stage 4 design: routing protocols over virtual Ethernet
 
-Status: implemented design; privileged namespace acceptance remains a separate
-gate. See [the lab guide](stage4.md), [exact wire contract](stage4-protocol.md),
+Status: implemented design, with privileged virtual-lab acceptance passed on
+hosted CI. See [the lab guide](stage4.md), [exact wire contract](stage4-protocol.md),
 and [verification record](verification.md). Stage 3 physical acceptance stays
 pending. Stage 4 uses Linux namespaces and veth cables on one Ubuntu machine;
 it does not need physical Ethernet adapters, VM images, or additional computers.

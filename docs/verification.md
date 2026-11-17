@@ -277,8 +277,24 @@ weighted cost; paths requiring 16 hops are unreachable, consistent with the
 convergence or production routing-protocol behavior.
 
 `make integration4` was attempted after building. Host sudo refused to launch
-the harness with `sudo: A terminal is required to authenticate`. No Stage 4
-namespace acceptance result or passing hosted run is claimed. Run that command
-from an authenticated terminal or on privileged CI and retain its fresh
-`artifacts/stage4-*` evidence before closing the Stage 4 empirical gate.
+the harness with `sudo: A terminal is required to authenticate`. At that point,
+no Stage 4 namespace acceptance result or passing hosted run was claimed.
+The subsequent hosted result below supplies the required privileged evidence.
 Stage 3 physical acceptance remains pending.
+
+## Hosted Stage 4 acceptance (2026-11-16)
+
+[The full CI run for commit f877884](https://github.com/obi-a/goodnews-router/actions/runs/44007507599)
+passed on GitHub-hosted Ubuntu 24.04: builds/checks, fuzzing, Stage 1–4
+acceptance, artifact ownership, PostgreSQL import, and the `CI required`
+aggregate. The Stage 4 job ran `make integration4` with actual namespaces,
+veth cables, and AF_PACKET sockets for both DV and LS. It verified textbook
+routes, directed cost changes, failed links, stopped/restarted routers,
+partitions, continuous-ping loss/recovery, traceroute, captured TTL/checksums,
+stopped-router failure, and repeated cleanup.
+
+[The retained Stage 4 artifact](https://github.com/obi-a/goodnews-router/actions/runs/44007507599/artifacts/14295515974)
+contains configs, command logs, convergence records, captures, packet/FIB/
+algorithm histories, and successful result files for both algorithms. This
+closes Stage 4's privileged virtual-lab gate. Stage 3's physical adapter and
+real endpoint gate remains pending.
