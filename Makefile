@@ -31,6 +31,7 @@ check: test vet lint python-test
 fuzz:
 	$(GO) test -run='^$$' -fuzz=FuzzParseIPv4 -fuzztime=$(FUZZ_TIME) -parallel=2 .
 	$(GO) test -run='^$$' -fuzz=FuzzEthernetARP -fuzztime=$(FUZZ_TIME) -parallel=2 .
+	$(GO) test -run='^$$' -fuzz=FuzzDecodeRouting -fuzztime=$(FUZZ_TIME) -parallel=2 .
 
 lab-up:
 	sudo bash lab/stage1.sh up
@@ -76,3 +77,23 @@ integration3: build
 
 workflow-lint:
 	actionlint
+
+ALGORITHM ?= dv
+.PHONY: lab4-up lab4-start lab4-stop lab4-check lab4-down integration4
+lab4-up: build
+	sudo python3 -B lab/stage4.py up --algorithm $(ALGORITHM)
+
+lab4-start:
+	sudo python3 -B lab/stage4.py start
+
+lab4-stop:
+	sudo python3 -B lab/stage4.py stop
+
+lab4-check:
+	sudo python3 -B lab/stage4.py check
+
+lab4-down:
+	sudo python3 -B lab/stage4.py down
+
+integration4: build
+	sudo python3 -B lab/acceptance_stage4.py

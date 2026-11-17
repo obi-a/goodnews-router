@@ -36,6 +36,8 @@ jobs:
           make check build TESTFLAGS='-race -count=1 -coverprofile=coverage.out -covermode=atomic' 2>&1 | tee checks.log
           ./bin/goodnews check --config lab/stage1.json
           ./bin/goodnews check --config lab/stage2.json
+          python3 -B lab/stage4.py generate --directory "$RUNNER_TEMP/stage4-configs"
+          for config in "$RUNNER_TEMP"/stage4-configs/*.json; do ./bin/goodnews check --config "$config"; done
       - name: Validate workflow
         run: |
           GOBIN="$RUNNER_TEMP/tools" go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
@@ -102,6 +104,8 @@ jobs:
             target: integration2
           - stage: 3
             target: integration3
+          - stage: 4
+            target: integration4
     services:
       postgres:
         image: postgres:17

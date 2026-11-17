@@ -235,3 +235,50 @@ This closes the automated Stage 1 and Stage 2 privileged namespace gates.
 Stage 3 physical adapters, real NetworkManager behavior, and Windows/macOS/Linux
 physical endpoint acceptance remain separate pending gates. Branch protection
 still needs the `CI required` check enabled by a repository administrator.
+
+## Stage 4 virtual routing implementation (2026-11-16)
+
+Implemented both config-selected routing algorithms, the bounded protocol-253
+wire format, bidirectional hello/dead timers, persistent startup incarnations,
+DV vector expiry/poisoned reverse, LS flooding/aging/synchronization, weighted
+Bellman–Ford and Dijkstra, runtime cost changes, atomic versioned FIB updates,
+neighbor/LSDB management snapshots, and algorithm JSONL logs. The six-router
+namespace/veth lifecycle and privileged acceptance harness are in `lab/stage4.py`
+and `lab/acceptance_stage4.py`; the workflow has a separate Stage 4 job.
+The [lab guide](stage4.md) and [wire contract](stage4-protocol.md) describe them.
+
+`make check build` passed with the race detector, vet, Go/Bash/Python source
+checks, module verification, all Python lifecycle/export tests, both binary
+builds, and the existing Stage 1/2/runtime/dashboard regressions. The routing
+tests cover the exact textbook metrics/first hops, additional hand-worked
+chain/tie/disconnected graphs, directed costs, router failure, partition
+withdrawal, restart with old state still present, wrong/stale control input,
+vector/LSA expiry, tombstones, state limits, incarnation persistence, and
+concurrent snapshots.
+
+Two runtime layers were checked without privileged namespace creation:
+`TestRoutingRuntimeEthernetARPAndFIBHistory` drives actual Ethernet frames
+through ARP, neighbor confirmation, learned-route forwarding, cost/down
+changes, management, and persisted packet/FIB/algorithm histories.
+`TestRoutingWorkersExchangeOverVirtualEthernet` runs all six concurrent runtime
+workers over paired in-memory Ethernet links for each algorithm and verifies
+convergence and live cost changes. These tests exercise the real runtime and
+codec, but do not certify AF_PACKET or the namespace setup scripts.
+
+`make fuzz` passed all three ten-second targets: IPv4 parsing executed 319,477
+cases; Ethernet/ARP parsing 308,351; routing decoding 327,723. Generated DV and
+LS configs were checked with `goodnews check`. The updated workflow passed
+actionlint 1.7.12.
+
+The failure/partition simulation exposed multi-router DV counting loops despite
+poisoned reverse. DV advertisements now carry a hop count in addition to their
+weighted cost; paths requiring 16 hops are unreachable, consistent with the
+16-router lab envelope. This bounds those loops without claiming immediate
+convergence or production routing-protocol behavior.
+
+`make integration4` was attempted after building. Host sudo refused to launch
+the harness with `sudo: A terminal is required to authenticate`. No Stage 4
+namespace acceptance result or passing hosted run is claimed. Run that command
+from an authenticated terminal or on privileged CI and retain its fresh
+`artifacts/stage4-*` evidence before closing the Stage 4 empirical gate.
+Stage 3 physical acceptance remains pending.

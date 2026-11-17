@@ -27,7 +27,7 @@ func main() {
 func command(args []string) error {
 	fs := flag.NewFlagSet("badnews", flag.ContinueOnError)
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "usage: badnews [--socket PATH] show|clear|link NAME up|down|delay MS|loss PERCENT|corruption PERCENT")
+		fmt.Fprintln(fs.Output(), "usage: badnews [--socket PATH] show|clear|link NAME up|down|delay MS|loss PERCENT|corruption PERCENT|cost N")
 		fs.PrintDefaults()
 	}
 	socket := fs.String("socket", "/run/goodnews-lab-stage2/r1.sock", "router management Unix socket")
@@ -69,7 +69,7 @@ func command(args []string) error {
 }
 
 func parseCommand(args []string) ([]byte, string, error) {
-	usage := fmt.Errorf("usage: badnews [--socket PATH] show|clear|link NAME up|down|delay MS|loss PERCENT|corruption PERCENT (cost arrives in Stage 4)")
+	usage := fmt.Errorf("usage: badnews [--socket PATH] show|clear|link NAME up|down|delay MS|loss PERCENT|corruption PERCENT|cost N")
 	if len(args) == 1 && args[0] == "show" {
 		return nil, http.MethodGet, nil
 	}
@@ -90,7 +90,7 @@ func parseCommand(args []string) ([]byte, string, error) {
 			if len(args) != 3 {
 				return nil, "", usage
 			}
-		case "delay", "loss", "corruption":
+		case "delay", "loss", "corruption", "cost":
 			if len(args) != 4 {
 				return nil, "", usage
 			}

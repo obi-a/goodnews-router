@@ -2,8 +2,9 @@
 
 A small IPv4 router for learning the network and control planes in Kurose and
 Ross. Stage 1 forwards over Linux TUN devices; Stage 2 adds Ethernet over
-veth, ARP, and runtime fault controls. Distributed routing, fragmentation,
-NAT, and a controller are later stages.
+veth, ARP, and runtime fault controls. Stage 4 adds distance vector and link
+state over a six-router virtual Ethernet lab. Fragmentation, NAT, and a
+controller are later stages.
 
 Stage 3 adds reversible setup for two unused physical Ethernet ports, with
 Linux, Windows, and macOS endpoint instructions. Physical hardware acceptance
@@ -17,6 +18,8 @@ process stops.
 
 Choose a guide to inspect the router:
 
+- [Stage 4 routing protocols](docs/stage4.md): discover neighbors, compare
+  Bellman–Ford with Dijkstra, and reroute around failures using virtual cables.
 - [Stage 3 physical Ethernet lab](docs/stage3.md): connect physical Linux,
   Windows, or macOS hosts, then restore the Ubuntu ports and endpoint settings.
 - [Continuous integration](docs/ci.md): automated coverage, saved evidence,
@@ -160,7 +163,8 @@ longest-prefix-first order. Generated replies have their own IDs and routes.
 
 The HTTP API runs on an owner-only Unix socket. `show` provides read-only
 `interfaces`, `routes`, `counters`, `arp`, and `impairments` views. ARP requires
-an Ethernet interface; `neighbors` and `lsdb` require Stage 4. Only the
+an Ethernet interface; `neighbors` requires routing and `lsdb` requires the
+link-state algorithm. Only the
 `/v1/impairments` endpoint accepts changes, through `badnews`. Without `--json`,
 output is indented JSON. The interface view shows protections and Ethernet MACs.
 
@@ -204,7 +208,7 @@ to false. Omitted switches default to true. Length checks always remain active.
 controls. Follow the [Stage 2 guide](docs/stage2.md) for commands and expected
 observations. The [Stage 1 fault exercises](docs/stage1-experiments.md#stage-1-faults-and-badnews)
 remain useful for malformed packets, TTL, missing routes, and protection switches.
-Routing-cost experiments apply when Stage 4 adds routing protocols.
+Stage 4 adds runtime routing-cost changes; see its guide for the virtual lab.
 
 ## Full acceptance check
 

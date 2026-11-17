@@ -53,6 +53,7 @@ type Runtime struct {
 	impairments  map[string]Impairment
 	delayed      []delayedPacket
 	arpRequests  []arpRequest
+	routing      *Routing
 }
 
 func NewRuntime(engine *Engine, links map[string]Link, observer PacketObserver) (*Runtime, error) {
@@ -79,6 +80,19 @@ func NewRuntime(engine *Engine, links map[string]Link, observer PacketObserver) 
 	}
 	if history, ok := observer.(interface{ RunInfo() RunInfo }); ok {
 		r.Info = history.RunInfo()
+	}
+	if engine.Config.Routing != nil {
+		if _, ok := observer.(interface{ Routing(RoutingEvent) error }); !ok {
+			return nil, fmt.Errorf("routing requires an algorithm event observer")
+		}
+		epoch, err := nextRoutingEpoch(engine.Config.Observability.Socket + ".epoch")
+		if err != nil {
+			return nil, fmt.Errorf("routing incarnation: %w", err)
+		}
+		r.routing, err = NewRouting(engine.Config, epoch)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return r, nil
 }
@@ -142,6 +156,9 @@ func (r *Runtime) Run(ctx context.Context) error {
 			if err := r.tickLinks(now); err != nil {
 				return err
 			}
+			if err := r.tickRouting(now); err != nil {
+				return err
+			}
 		case p := <-packets:
 			if ctx.Err() != nil {
 				return r.shutdownPending()
@@ -159,10 +176,16 @@ func (r *Runtime) Run(ctx context.Context) error {
 // process is called only by the forwarding worker; all observer writes have a
 // stable order. Management queries read independent counter snapshots.
 func (r *Runtime) process(ingress string, packet []byte) error {
+	var err error
 	if r.ports[ingress] != nil {
-		return r.processEthernet(ingress, packet)
+		err = r.processEthernet(ingress, packet)
+	} else {
+		err = r.processIP(ingress, packet)
 	}
-	return r.processIP(ingress, packet)
+	if err != nil {
+		return err
+	}
+	return r.tickRouting(time.Now())
 }
 
 func (r *Runtime) processIP(ingress string, packet []byte) error {
@@ -173,6 +196,9 @@ func (r *Runtime) processIP(ingress string, packet []byte) error {
 		}
 	}
 	d := r.Engine.Process(ingress, packet)
+	if r.routing != nil && len(packet) > 9 && packet[9] == RoutingProtocol {
+		d = r.routingDecision(ingress, packet, at)
+	}
 	if history, ok := r.observer.(interface{ RecordFIB(*Table) error }); ok {
 		if err := history.RecordFIB(d.Table); err != nil {
 			return fmt.Errorf("FIB snapshot: %w", err)

@@ -25,7 +25,7 @@ flowchart LR
         H1 ---|"10.0.0.0/24, TUN then veth"| R1
         R1 ---|"10.0.1.0/24, TUN then veth"| H2
     end
-    subgraph PHYSICAL["Stage 3 onward, three real machines"]
+    subgraph PHYSICAL["Stage 3 physical acceptance, three real machines"]
         WIN["Windows laptop<br/>10.0.0.2"]
         LIN["Linux laptop, our router program<br/>10.0.0.1 and 10.0.1.1"]
         MAC["Mac<br/>10.0.1.2"]
@@ -137,7 +137,7 @@ Nothing in the data plane knows which routing algorithm is running. That is why 
 | Controller | `controller.go` | Computes rules centrally and pushes them out | 6 | R17, R18 |
 | Lab scripts | `lab/` | Builds namespaces and cables, runs the exit tests | 1 | All |
 
-The implemented command line program is `goodnews`, which runs the router and answers `goodnews show` queries while it runs. A second program, `badnews`, implements Stage 2 runtime link state, delay, loss, corruption and `clear` controls. See `docs/stage2.md`. Commands such as `badnews link y-x cost 60` remain future interfaces: cost changes become routing inputs in Stage 4.
+The implemented command line program is `goodnews`, which runs the router and answers `goodnews show` queries while it runs. A second program, `badnews`, implements runtime link state, delay, loss, corruption and `clear` controls. Stage 4 adds `badnews link NAME cost N` for routing-enabled interfaces. See `docs/stage2.md` and `docs/stage4.md`.
 
 Stage 1 already offers fault experiments using crafted malformed packets, TTL expiry, missing routes, protection switches and stopping the router. `docs/stage1-experiments.md` documents those commands and their expected observations. The new `badnews` also applies egress impairments to TUN links; the Stage 1 exercises remain available without it.
 
@@ -234,7 +234,8 @@ Build and review small working checkpoints, starting with Stage 1. Each lab expl
 - [x] Stage 3 implementation: explicit selection of unused physical Ethernet ports, a dedicated router namespace without kernel addresses, a temporary NetworkManager exclusion, offload/sysctl snapshots, rollback and restoration, and Linux/Windows/macOS endpoint instructions. See `docs/stage3.md`.
 - [ ] Stage 3 empirical gate: verify the Windows/macOS physical pairing and a physical Linux endpoint, retain ping/traceroute/ARP/TTL/checksum evidence, and prove stopped-router failure and settings restoration. Synthetic lifecycle CI does not close this gate.
 - [x] CI implementation: build both binaries, run race/vet/source/workflow/Python/fuzz checks, all three namespace acceptance targets, privileged artifact ownership, and PostgreSQL JSONL import verification. See `docs/ci.md` for enabling the required repository check after the first hosted run.
-- [ ] Stage 4: specify protocol 253 messages, timers, sequence numbers, aging, DV/LS selection and a statically registered Go routing-plugin interface before implementation. Do not use dynamic shared-library loading.
+- [x] Stage 4 implementation: bounded protocol 253 messages, persistent restart incarnations, hello/dead timers, vector/LSA aging, DV/LS selection, statically registered Go routing interface, algorithm traces, runtime costs, and six-router virtual Ethernet lifecycle/acceptance. See [docs/stage4.md](docs/stage4.md), [design](docs/stage4-design.md), and [protocol](docs/stage4-protocol.md).
+- [ ] Stage 4 empirical gate: run `make integration4` on a privileged host and retain both algorithms' convergence, ping/traceroute, capture, failure, restart, partition, and cleanup evidence. Local sudo authentication prevented this session's real namespace run. Stage 3 physical acceptance stays pending.
 - [ ] Stage 5: specify NAT transports, checksum updates, state expiry and fragmentation interaction before implementation.
 - [ ] Stage 6: specify flow matches, actions, priorities and replacement behavior. Use a separate management connection so reaching the controller does not depend on installed data-plane routes.
 

@@ -14,6 +14,7 @@ type Impairment struct {
 	DelayMS        int     `json:"delay_ms"`
 	LossPercent    float64 `json:"loss_percent"`
 	CorruptPercent float64 `json:"corrupt_percent"`
+	Cost           uint32  `json:"cost,omitempty"` // zero means the configured cost
 }
 
 func (i Impairment) Validate() error {
@@ -61,6 +62,20 @@ func (r *Runtime) changeImpairment(command impairmentCommand) error {
 		return fmt.Errorf("unknown interface %q", command.Interface)
 	}
 	switch command.Setting {
+	case "cost":
+		if r.Engine.Config.Routing == nil || math.IsNaN(command.Value) || math.IsInf(command.Value, 0) || command.Value < 1 || command.Value > 1000 || math.Trunc(command.Value) != command.Value {
+			return fmt.Errorf("cost requires routing and an integer in 1..1000")
+		}
+		active := false
+		for _, link := range r.Engine.Config.Routing.Links {
+			if link.Interface == command.Interface {
+				active = true
+			}
+		}
+		if !active {
+			return fmt.Errorf("cost requires an active routing interface")
+		}
+		i.Cost = uint32(command.Value)
 	case "down", "up":
 		if command.Value != 0 {
 			return fmt.Errorf("up/down take no value")
@@ -76,7 +91,7 @@ func (r *Runtime) changeImpairment(command impairmentCommand) error {
 	case "corruption":
 		i.CorruptPercent = command.Value
 	default:
-		return fmt.Errorf("setting must be up, down, delay, loss, corruption or clear; routing cost is a Stage 4 input")
+		return fmt.Errorf("setting must be up, down, delay, loss, corruption, cost or clear")
 	}
 	if err := i.Validate(); err != nil {
 		return err

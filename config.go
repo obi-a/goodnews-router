@@ -18,6 +18,7 @@ type Config struct {
 	Routes        []StaticRoute     `json:"routes"`
 	Observability ObservationConfig `json:"observability"`
 	Protections   Protections       `json:"protections"`
+	Routing       *RoutingConfig    `json:"routing,omitempty"`
 }
 
 type Interface struct {
@@ -121,6 +122,9 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.Observability.Directory) == "" {
 		return fmt.Errorf("observability.directory is required")
+	}
+	if err := validateRouting(c); err != nil {
+		return err
 	}
 	_, err := BuildTable(c, 1)
 	return err

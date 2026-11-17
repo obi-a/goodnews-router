@@ -8,11 +8,12 @@ Linux, Windows, or macOS. Windows/macOS binary builds are not applicable.
 | Check | Local equivalent |
 | --- | --- |
 | Build, race tests, vet, source syntax, module verification, Python lifecycle tests | `make check build` |
-| IPv4 and Ethernet/ARP fuzzing | `make fuzz` |
+| IPv4, Ethernet/ARP, and routing-message fuzzing | `make fuzz` |
 | Workflow syntax and expressions | `make workflow-lint` (actionlint 1.7.12) |
 | Stage 1 TUN acceptance | `make integration` |
 | Stage 2 Ethernet/ARP/impairment acceptance | `make integration2` |
 | Stage 3 synthetic namespace lifecycle and Linux endpoint regression | `make integration3` |
+| Stage 4 six-router DV/LS convergence and failure acceptance | `make integration4` |
 
 CI also runs the root-only artifact ownership test and imports actual networking
 acceptance traces/counter snapshots into a disposable PostgreSQL 17 service.
