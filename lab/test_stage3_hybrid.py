@@ -5,8 +5,9 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from stage3 import Lab, LabError, subnets
+from stage3 import Lab, LabError, Linux, subnets
 from test_stage3 import FakeLinux, FakeManager
 
 
@@ -84,6 +85,10 @@ class HybridLinux(FakeLinux):
 
     def endpoint_routes(self, namespace, device):
         return copy.deepcopy(self.defaults[namespace])
+
+    def veth_peer_ifindex(self, device, namespace):
+        link = self.port(device, namespace)
+        return link.get("link_index", link["ifindex"])
 
 
 class HybridTests(unittest.TestCase):
@@ -205,6 +210,35 @@ class HybridTests(unittest.TestCase):
         self.assertEqual(ipaddress.IPv4Address(host["addr_info"][0]["local"]), self.networks[0][2])
         self.lab.down()
         self.assert_restored()
+
+    def test_equal_veth_indices_across_namespaces(self):
+        original = self.backend.veth_create
+
+        def create(router, device, host, peer, alias):
+            original(router, device, host, peer, alias)
+            for namespace, name in ((router, device), (host, peer)):
+                link = self.backend.devices[namespace][name]
+                link["ifindex"] = 2
+                del link["link_index"]
+
+        self.backend.veth_create = create
+        self.up()
+        manifest = self.lab.check()
+        self.assertEqual(manifest["virtual"]["router_ifindex"], 2)
+        self.assertEqual(manifest["virtual"]["host_ifindex"], 2)
+        self.lab.down()
+        self.assert_restored()
+
+    def test_linux_veth_peer_statistics_fallback(self):
+        linux = Linux()
+        with patch.object(linux, "port", return_value={"ifindex": 2}), \
+                patch("stage3.run", return_value="NIC statistics:\n     peer_ifindex: 2\n") as run:
+            self.assertEqual(linux.veth_peer_ifindex("left0", "test-r1"), 2)
+            run.assert_called_once_with("ethtool", "-S", "left0", namespace="test-r1")
+        with patch.object(linux, "port", return_value={"ifindex": 2}), \
+                patch("stage3.run", return_value="NIC statistics:\n"):
+            with self.assertRaisesRegex(LabError, "cannot identify veth peer"):
+                linux.veth_peer_ifindex("left0", "test-r1")
 
 
 if __name__ == "__main__":

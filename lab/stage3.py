@@ -254,6 +254,19 @@ class Linux:
         run("ip", "link", "add", "name", device, "alias", alias, "type", "veth",
             "peer", "name", peer, "netns", host, namespace=router)
 
+    def veth_peer_ifindex(self, device, namespace):
+        link = self.port(device, namespace)
+        if link.get("link_index") is not None:
+            return link["link_index"]
+        # Equal interface indices in separate namespaces can omit link_index
+        # from ip's JSON. veth(4) exposes the actual peer through ethtool stats;
+        # do not assume an absent field means this interface is its own peer.
+        output = run("ethtool", "-S", device, namespace=namespace)
+        match = re.search(r"^\s*peer_ifindex:\s*(\d+)\s*$", output, re.MULTILINE)
+        if match and int(match[1]) > 0:
+            return int(match[1])
+        raise LabError(f"cannot identify veth peer of {device}")
+
     def endpoint_configure(self, namespace, device, network):
         run("ip", "address", "add", f"{network[2]}/{network.prefixlen}", "dev", device, namespace=namespace)
         run("ip", "route", "add", "default", "via", str(network[1]), "dev", device, namespace=namespace)
@@ -390,9 +403,11 @@ class Lab:
         if a is None and b is None:
             return
         if (a is None or b is None or a.get("ifalias") != virtual["alias"]
-                or any(link.get("linkinfo", {}).get("info_kind") != "veth" for link in (a, b))
-                or a.get("link_index") != b["ifindex"] or b.get("link_index") != a["ifindex"]):
+                or any(link.get("linkinfo", {}).get("info_kind") != "veth" for link in (a, b))):
             raise LabError("virtual cable identity changed; refusing to touch it")
+        if (self.backend.veth_peer_ifindex(virtual["router_device"], self.namespace) != b["ifindex"]
+                or self.backend.veth_peer_ifindex(virtual["host_device"], virtual["namespace"]) != a["ifindex"]):
+            raise LabError("virtual cable peer identity changed; refusing to touch it")
         for side, link, namespace, device in (("router", a, self.namespace, virtual["router_device"]),
                                               ("host", b, virtual["namespace"], virtual["host_device"])):
             if virtual[side + "_identity"] is not None:
