@@ -6,8 +6,10 @@ the router laptop. Physical hosts can run Linux, Windows, or macOS. Stage 1 TUN
 and Stage 2 veth labs keep their existing commands and configurations.
 
 Stage 3 uses **wired Ethernet for forwarding**. Keep Wi-Fi connected for Internet
-access, SSH, and management. Wi-Fi forwarding, DHCP, and NAT are later work;
-Stage 4 adds routing protocols and Stage 5 adds fragmentation and NAT.
+access, SSH, and management. Stage 5 adds fragmentation/NAT, and planned
+[Stage 9](future-stages.md#stage-9-wi-fi-access-point-lab) adds a Wi-Fi forwarding
+lab. DHCP is a subsequent exercise. Stage 4's custom DV/LS algorithm lab is
+separate from the standard protocol interoperability planned for Stage 7.
 
 The physical exit gate remains pending until the hardware results are recorded
 in [verification.md](verification.md). `make integration3` exercises both modes

@@ -3,8 +3,9 @@
 A small IPv4 router for learning the network and control planes in Kurose and
 Ross. Stage 1 forwards over Linux TUN devices; Stage 2 adds Ethernet over
 veth, ARP, and runtime fault controls. Stage 4 adds distance vector and link
-state over a six-router virtual Ethernet lab. Fragmentation, NAT, and a
-controller are later stages.
+state using a custom teaching protocol over a six-router virtual Ethernet lab.
+Fragmentation/NAT and a controller remain Stages 5–6. Planned Stages 7–9 add
+RIPv2/OSPFv2 interoperability, BGP, and Wi-Fi access-point forwarding.
 
 Stage 3 adds reversible setup for two physical Ethernet ports, or explicit
 hybrid mode with one physical port and one virtual endpoint. Linux, Windows,
@@ -19,6 +20,8 @@ process stops.
 
 Choose a guide to inspect the router:
 
+- [Later-stage roadmap](docs/future-stages.md): planned standard routing
+  protocols, BGP policy labs, and Wi-Fi, with prerequisites and exit tests.
 - [Stage 4 routing protocols](docs/stage4.md): discover neighbors, compare
   Bellman–Ford with Dijkstra, and reroute around failures using virtual cables.
 - [Stage 3 physical Ethernet lab](docs/stage3.md): use two laptops with a virtual

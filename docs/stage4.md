@@ -5,6 +5,11 @@ Choose distance vector (`dv`, Bellman–Ford) or link state (`ls`, Dijkstra).
 Neither mode needs physical Ethernet, Wi-Fi forwarding, VMs, or more computers.
 Stage 3's physical acceptance remains pending and independent.
 
+This stage teaches algorithms using a custom protocol, with no standard RIP or
+OSPF peering. Planned [Stage 7 adds RIPv2/OSPFv2 interoperability, Stage 8 BGP,
+and Stage 9 Wi-Fi](future-stages.md). All standard routing-protocol labs can
+start with virtual Ethernet; Wi-Fi has its own later radio acceptance gate.
+
 The implementation has automated algorithm, protocol, runtime, and lifecycle
 tests. Real namespace acceptance is a separate gate; see
 [verification.md](verification.md) for what has actually run.

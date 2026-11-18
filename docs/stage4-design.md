@@ -19,6 +19,11 @@ checkpoints. No OSPF/RIP interoperability, dynamic shared libraries, Internet
 gateway, DHCP, Wi-Fi forwarding, NAT, fragmentation, or central controller is
 included in this stage.
 
+Standard routing protocols and Wi-Fi have explicit later milestones:
+[Stage 7 for RIPv2/OSPFv2, Stage 8 for BGP, and Stage 9 for Wi-Fi](future-stages.md).
+They are planned extensions and do not change Stage 4's custom protocol or
+acceptance results.
+
 ## Lab topology and evidence
 
 Use the existing textbook graph:

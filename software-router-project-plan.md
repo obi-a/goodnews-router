@@ -62,6 +62,10 @@ Each requirement has a test you can watch, so done is never a matter of opinion.
 | R16 | Translate addresses with a NAT table | 5 | 4 | Outside capture shows only the router's address |
 | R17 | Forward by match and action rules in a flow table | 6 | 4 | Rules on port or protocol steer traffic differently |
 | R18 | Accept rules from one central controller | 6 | 5 | Routers run no routing process and traffic still flows |
+| R28 | Exchange standard RIPv2 routes with an independent peer | 7A | 5 | FRR and goodnews learn/withdraw prefixes; endpoint traffic follows the Go FIB |
+| R29 | Form single-area point-to-point OSPFv2 adjacencies with an independent peer | 7B | 5 | FRR adjacency/LSDB and predicted routes agree, including failure recovery |
+| R30 | Exchange IPv4 unicast BGP routes and apply AS-path/policy decisions | 8 | 5 | FRR peering, loop rejection, withdrawal and policy changes affect forwarding |
+| R31 | Forward between a Wi-Fi client and another subnet through goodnews | 9 | 4, 6 | A client joins the lab SSID; bidirectional traffic stops when goodnews stops |
 
 Four constraints apply to every stage.
 
@@ -197,9 +201,19 @@ Ethernet and ARP come before routing protocols. Routers need real links between 
 1. **Forwarding over TUN, in namespaces (R1 to R7).** Exit test is real `traceroute` from one namespace to the other showing our router as a hop.
 2. **Ethernet and ARP over virtual cables (R8, R9).** Exit test is the same ping, now with ARP visible in Wireshark.
 3. **Physical laptops (R10).** Exit test is `tracert` on Windows and `traceroute` on the Mac both crossing our router.
-4. **Routing protocols (R11 to R14).** Six router processes form the textbook's example graph with routers u through z. Exit test is that router u reaches v at cost 2, x at 1, y at 2, w at 3 and z at 4, with everything except v leaving via x. Then repeat with other graphs worked by hand.
+4. **Routing algorithms using a custom teaching protocol (R11 to R14).** Six router processes form the textbook's example graph with routers u through z. Exit test is that router u reaches v at cost 2, x at 1, y at 2, w at 3 and z at 4, with everything except v leaving via x. Then repeat with other graphs worked by hand. This is not standard RIP/OSPF interoperability.
 5. **Fragmentation and NAT (R15, R16).** Exit test is a large ping across a small MTU link, and a host behind our router reaching the Internet.
 6. **Central controller (R17, R18).** Exit test is stopping every routing process, then starting one controller that restores traffic.
+7. **Standard intra-network routing (R28, R29).** Stage 7A implements RIPv2 interoperability, followed by Stage 7B single-area point-to-point OSPFv2. Exit tests use independent FRR peers, standard packet captures, learned forwarding, withdrawals and recovery over virtual Ethernet.
+8. **BGP peering and policy (R30).** Simulate multiple autonomous systems over virtual links. Exchange IPv4 unicast eBGP routes with FRR, inspect AS paths, reject loops, and prove policy/withdrawal changes affect the Go FIB and endpoint traffic.
+9. **Wi-Fi access-point forwarding (R31).** Connect a wireless client to the router laptop's lab SSID, initially opposite a virtual host with static addresses. Exit tests prove forwarding through goodnews, failure/recovery, and restored radio/management settings. DHCP and Internet sharing are follow-up extensions.
+
+Stages 7–9 are planned work. Their scope, prerequisites, and completion evidence
+are in [docs/future-stages.md](docs/future-stages.md). Stages 7 and 8 need only
+virtual links; Stage 9 needs a real AP-capable radio and client for its hardware
+gate. The first isolated Wi-Fi lab depends on Stages 2/3, not on BGP; Internet
+sharing additionally depends on Stage 5 NAT. Stage 3 physical acceptance remains
+pending independently of these later milestones.
 
 ## How to learn from it
 
@@ -239,12 +253,19 @@ Build and review small working checkpoints, starting with Stage 1. Each lab expl
 - [x] Stage 4 empirical gate: `make integration4` passed for both DV and LS on privileged GitHub-hosted Ubuntu, with convergence, ping/traceroute, capture, failure, restart, partition, and cleanup evidence retained. See [the verification record](docs/verification.md) for the passing run. Stage 3 physical acceptance stays pending.
 - [ ] Stage 5: specify NAT transports, checksum updates, state expiry and fragmentation interaction before implementation.
 - [ ] Stage 6: specify flow matches, actions, priorities and replacement behavior. Use a separate management connection so reaching the controller does not depend on installed data-plane routes.
+- [ ] Stage 7A: specify and implement RIPv2 wire/transport/metric/timer behavior, then verify bidirectional interoperability, withdrawals and forwarding with FRR over virtual Ethernet.
+- [ ] Stage 7B: specify the supported OSPFv2 area-0 point-to-point profile, neighbor/database state machines, LSA reliability/aging and route publication, then verify interoperability and failure recovery with FRR.
+- [ ] Stage 8: design the Go BGP speaker's TCP/control-plane attachment, capabilities, attributes, next-hop resolution, import/export policy and route preference; prove multi-AS interoperability and forwarding with FRR.
+- [ ] Stage 9: design AP-radio/namespace ownership, association/security, static addressing, Go forwarding, management isolation and restoration; test real wireless clients. Check existing AP capability before considering an extra adapter. DHCP and Internet NAT are subsequent extensions.
 
 ## Open decisions and later projects
 
 - [x] Stage 3 design: use built-in Ethernet plus a USB Ethernet adapter. Confirm device names and adapter readiness at the Stage 3 gate.
 - [x] Windows and Mac are available as lab hosts for the planned physical stage.
 - [ ] Optional exercise, rewrite longest prefix match or Dijkstra by hand against the agent's tests
-- [ ] Decide whether to write the BGP speaker later in Go or Ruby
+- [x] BGP belongs to planned Stage 8, with a Go speaker and FRR as an independent peer; it is no longer an unnamed follow-up project.
 
-Two later projects build on this one. The first is IP addressing and DHCP, where our router hands the Windows laptop its address, mask and gateway. The second is a small BGP speaker that opens a session with an FRR router and reads real AS paths.
+An additional IP addressing/DHCP exercise can follow the statically addressed
+Wi-Fi lab, letting goodnews supply client addresses, masks and gateways. BGP,
+RIPv2/OSPFv2 interoperability, and Wi-Fi forwarding now have explicit numbered
+milestones in [the later-stage roadmap](docs/future-stages.md).
