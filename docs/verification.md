@@ -298,3 +298,32 @@ contains configs, command logs, convergence records, captures, packet/FIB/
 algorithm histories, and successful result files for both algorithms. This
 closes Stage 4's privileged virtual-lab gate. Stage 3's physical adapter and
 real endpoint gate remains pending.
+
+## Stage 3 two-laptop hybrid mode (2026-11-18)
+
+Added explicit `MODE=hybrid` setup with one selected physical `RIGHT_DEVICE`
+and a lab-created virtual left endpoint (`gn3-h1`, `10.0.0.2/24`). The original
+two-port physical mode remains the default. Carrier loss never switches modes,
+and the physical-device predicate still applies to every selected real port.
+See [the two-laptop guide](stage3.md#two-laptop-hybrid-lab) for commands on both
+Ubuntu laptops, address/route settings, inspection, failure checks, and cleanup.
+
+The state manifest records the mode, virtual namespace inode, cable alias,
+MACs, and ifindices. Setup configures endpoint routes and software checksums;
+cleanup restores the one physical port and removes the owned virtual endpoint.
+Busy or replaced namespaces/cables are refused before physical-port recovery.
+The Go forwarding code is unchanged.
+
+`make check build` passed: race-enabled Go regressions, vet, formatting/source
+checks, module verification, both builds, and 36 Python tests. Ten new hybrid
+tests cover repeated setup/cleanup, explicit mode selection, unchanged carrier
+semantics, physical-port validation, preexisting/busy/replaced virtual resources,
+partial setup rollback, cleanup retry, endpoint drift, and alternate subnets.
+
+`make integration3` now runs separate physical and hybrid fixtures, including
+AF_PACKET forwarding, bidirectional ping/traceroute, ARP/TTL/checksum capture
+checks, stopped-router failure, settings restoration, and repeated lifecycle
+checks. Its local invocation could not launch because sudo requires interactive
+authentication. The new hybrid fixture has not yet been run on privileged CI;
+the earlier passing Stage 3 CI predates this extension. Real Ethernet hardware
+acceptance also remains pending.

@@ -1,19 +1,173 @@
 # Stage 3: physical Ethernet hosts
 
-This lab connects two physical hosts through the Ubuntu goodnews router. Hosts
-can run Linux, Windows, or macOS, in any pairing. Stage 1 TUN and Stage 2 veth
-labs keep their existing commands and configurations.
+This lab connects endpoints through the Ubuntu goodnews router. Use two physical
+hosts, or choose **hybrid mode** for one physical host and one virtual host on
+the router laptop. Physical hosts can run Linux, Windows, or macOS. Stage 1 TUN
+and Stage 2 veth labs keep their existing commands and configurations.
 
 Stage 3 uses **wired Ethernet for forwarding**. Keep Wi-Fi connected for Internet
 access, SSH, and management. Wi-Fi forwarding, DHCP, and NAT are later work;
 Stage 4 adds routing protocols and Stage 5 adds fragmentation and NAT.
 
 The physical exit gate remains pending until the hardware results are recorded
-in [verification.md](verification.md). `make integration3` exercises real Linux
-namespaces and veth devices with a simulated NetworkManager backend. It does
-not certify physical adapters or Windows/macOS hosts.
+in [verification.md](verification.md). `make integration3` exercises both modes
+with real Linux namespaces and veth devices, using a simulated NetworkManager
+backend and synthetic physical-port fixtures. It does not certify physical
+adapters or Windows/macOS hosts.
 
-## Equipment and addresses
+## Choose the topology
+
+| Mode | Router laptop ports | Left endpoint | Right endpoint |
+| --- | --- | --- | --- |
+| `physical` (default) | Two specified physical Ethernet ports | Physical host | Physical host |
+| `hybrid` | One specified physical Ethernet port | Virtual host namespace on this laptop | Physical host |
+
+Mode is chosen at setup, never from cable carrier state. An unplugged cable in
+physical mode remains a failed physical link; it does not turn into a virtual
+host. Changing topology requires stopping the router, running `make lab3-down`,
+then setting up the other mode. Omitting `LEFT_DEVICE` in the default mode is
+an error. Hybrid mode must be selected with `MODE=hybrid` and uses only
+`RIGHT_DEVICE`; leave `LEFT_DEVICE` unset or empty.
+
+## Two-laptop hybrid lab
+
+Use this procedure when you have this Ubuntu router laptop and one other
+Ubuntu laptop. Each needs one Ethernet port or adapter, connected by one cable.
+No third computer or full virtual machine is required.
+
+```text
+This Ubuntu laptop                                             Other Ubuntu laptop
+gn3-h1: 10.0.0.2/24 -- veth -- goodnews in gn3-r1 -- Ethernet -- 10.0.1.2/24
+                              left: 10.0.0.1
+                              right: 10.0.1.1
+```
+
+### Prepare the router laptop
+
+Run from this repository on the router laptop:
+
+```sh
+make build
+ip -br address
+nmcli device status
+```
+
+Identify the dedicated wired port connected to the other laptop. In the examples
+below it is `enp1s0`; replace that name with your device. The selected port must
+have no existing addresses, routes, or active NetworkManager connection. If
+NetworkManager automatically connected that dedicated port, disconnect only
+that port first:
+
+```sh
+sudo nmcli device disconnect enp1s0
+```
+
+Keep Wi-Fi connected for management. Check that `10.0.0.0/24` and
+`10.0.1.0/24` do not overlap LAN, VPN, or container routes on either laptop.
+Preflight is read-only; setup repeats its checks:
+
+```sh
+make lab3-preflight MODE=hybrid RIGHT_DEVICE=enp1s0
+make lab3-up MODE=hybrid RIGHT_DEVICE=enp1s0
+make lab3-check
+```
+
+Setup moves the selected physical port into `gn3-r1`, creates an owned virtual
+Ethernet pair (`left0` in `gn3-r1`, `gn0` in `gn3-h1`), and configures the virtual
+host as `10.0.0.2/24` with gateway `10.0.0.1`. Both router interfaces stay free
+of kernel addresses and kernel forwarding stays disabled. NetworkManager
+exclusion and physical settings snapshots apply only to the selected real port.
+The generated config is `/run/goodnews-lab-stage3/router.json`.
+
+For alternate subnets, pass the same `LEFT_SUBNET` and `RIGHT_SUBNET` values to
+both preflight and up, then adjust all endpoint addresses/routes below. Setup
+prints the chosen physical endpoint address and virtual namespace.
+
+### Configure the other Ubuntu laptop
+
+These commands run on the **other** laptop. Identify its dedicated wired device
+with `ip -br address` and `nmcli device status`. Here it is also named `enp1s0`;
+its actual name can differ from the router laptop's port.
+
+Ensure the profile name `goodnews-stage3` is unused and the selected port has no
+existing configuration to preserve. This lab-owned profile sets no default
+route or DNS and does not autoconnect:
+
+```sh
+nmcli connection show
+sudo nmcli connection add type ethernet ifname enp1s0 con-name goodnews-stage3 connection.autoconnect no ipv4.method manual ipv4.addresses 10.0.1.2/24 ipv4.routes '10.0.0.0/24 10.0.1.1' ipv4.never-default yes ipv6.method disabled
+sudo nmcli connection up goodnews-stage3
+ip -4 route get 10.0.0.2
+```
+
+The route should use `10.0.1.1` through the selected wired interface. A local
+firewall must permit the lab's ICMP echo requests from `10.0.0.0/24` on that
+interface. Use a scoped rule in your existing firewall if needed, keep the
+firewall enabled, and remove the lab rule during cleanup.
+
+### Start the router and test both directions
+
+Back on the router laptop, leave this command running in terminal 1:
+
+```sh
+sudo ip netns exec gn3-r1 ./bin/goodnews run --config /run/goodnews-lab-stage3/router.json
+```
+
+In terminal 2 on the router laptop, test from the virtual host:
+
+```sh
+sudo ip netns exec gn3-h1 ping -n -c 3 10.0.0.1
+sudo ip netns exec gn3-h1 ping -n -c 3 10.0.1.2
+sudo ip netns exec gn3-h1 traceroute -I -n -q 1 -m 3 10.0.1.2
+sudo ./bin/goodnews show arp --socket /run/goodnews-lab-stage3/r1.sock
+sudo ./bin/goodnews show counters --socket /run/goodnews-lab-stage3/r1.sock
+```
+
+On the other laptop:
+
+```sh
+ping -n -c 3 10.0.1.1
+ping -n -c 3 10.0.0.2
+traceroute -I -n -q 1 -m 3 10.0.0.2
+```
+
+Expect the local `.1` router address, then the opposite endpoint. Compare the
+router's `left.pcap` and `right.pcap` captures: ARP on both legs, the same echo
+payload and IP endpoints, TTL lower by one, and a valid IPv4 checksum.
+
+Stop goodnews with Ctrl-C and repeat the remote-endpoint ping: it must fail.
+Restart goodnews and require recovery. While pinging, unplug and reconnect the
+physical cable; require loss and recovery without a topology change. Record
+the adapter names, command output, and artifact directory for this physical
+Linux endpoint run. It supplies useful mixed virtual/physical evidence; the
+original two-physical-endpoint and Windows/macOS gate remains separate.
+
+### Restore both laptops
+
+Stop goodnews, any endpoint ping, and any shell running inside a lab namespace.
+On the other laptop, remove the lab-owned profile and any lab firewall rule:
+
+```sh
+sudo nmcli connection down goodnews-stage3
+sudo nmcli connection delete goodnews-stage3
+```
+
+On the router laptop:
+
+```sh
+make lab3-down
+ip -br link
+nmcli device status
+```
+
+Cleanup restores the physical port's original MTU, administrative state,
+offloads, interface sysctls, and NetworkManager managed/autoconnect settings.
+It removes both owned namespaces and their virtual cable. A running virtual
+endpoint process, replaced namespace, or replaced virtual cable is reported
+before moving the physical port. Keep the state manifest if cleanup reports a
+problem, resolve its diagnostic, and rerun cleanup. Repeated cleanup is harmless.
+
+## Three-laptop physical lab: equipment and addresses
 
 Use two dedicated Ethernet ports on Ubuntu (built-in or USB adapters), two
 cables, and an Ethernet port or adapter on each endpoint. Physical port names

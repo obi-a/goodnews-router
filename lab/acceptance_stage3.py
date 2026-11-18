@@ -43,10 +43,12 @@ class FixtureManager:
         pass
 
 
-def fixture(evidence):
+def fixture(evidence, mode="physical"):
     backend = FixtureLinux()
     backend.isolate(NAMES[0])
     for index, name in enumerate(("left0", "right0")):
+        if mode == "hybrid" and index == 0:
+            continue
         host = NAMES[index + 1]
         run("ip", "link", "add", name, "type", "veth", "peer", "name", "peer0")
         run("ip", "link", "set", "peer0", "netns", host)
@@ -59,13 +61,16 @@ def fixture(evidence):
             if feature in ("tx-checksumming", "scatter-gather", "tcp-segmentation-offload",
                            "generic-segmentation-offload", "generic-receive-offload") and value["on"] and not value["fixed"]:
                 backend.feature("peer0", feature, False, host)
+    devices = ["", "right0"] if mode == "hybrid" else ["left0", "right0"]
+    physical = [device for device in devices if device]
     before = {name: {"link": backend.port(name), "features": backend.features(name),
-                     "sysctls": backend.port_sysctls(name)} for name in ("left0", "right0")}
+                     "sysctls": backend.port_sysctls(name)} for name in physical}
     lab = Lab(backend, FixtureManager(), evidence / "state", NAMES[3], evidence / "router")
     router = None
     logfile = None
     try:
-        lab.up(["left0", "right0"], subnets("10.0.0.0/24", "10.0.1.0/24"))
+        lab.up(devices, subnets("10.0.0.0/24", "10.0.1.0/24"), mode)
+        endpoints = (lab.host_namespace, NAMES[2]) if mode == "hybrid" else NAMES[1:3]
         config = lab.state / "router.json"
         command(ROOT / "bin/goodnews", "check", "--config", config)
         logfile = (evidence / "router.log").open("w")
@@ -79,7 +84,7 @@ def fixture(evidence):
             return command(ROOT / "bin/goodnews", "show", "routes", "--socket", socket, "--json", ok=False).returncode == 0
 
         wait_for(ready, "Stage 3 fixture router startup")
-        for index, host in enumerate(NAMES[1:3]):
+        for index, host in enumerate(endpoints):
             remote = f"10.0.{1-index}.2"
             command("ip", "netns", "exec", host, "ping", "-n", "-c", "2", "-W", "1", remote)
             trace = command("ip", "netns", "exec", host, "traceroute", "-I", "-n", "-q", "1", "-w", "1", "-m", "3", remote)
@@ -90,7 +95,7 @@ def fixture(evidence):
         if router.wait(timeout=5) != 0:
             raise AssertionError("router did not shut down cleanly")
         router = None
-        if command("ip", "netns", "exec", NAMES[1], "ping", "-c", "1", "-W", "1", "10.0.1.2", ok=False).returncode == 0:
+        if command("ip", "netns", "exec", endpoints[0], "ping", "-c", "1", "-W", "1", "10.0.1.2", ok=False).returncode == 0:
             raise AssertionError("stopped router still forwards")
         directory = next((evidence / "router/runs").iterdir())
         left, right = packets(directory / "left.pcap"), packets(directory / "right.pcap")
@@ -106,7 +111,7 @@ def fixture(evidence):
         lab.down()
         if lab.down() is not None:
             raise AssertionError("cleanup is not idempotent")
-        for name in ("left0", "right0"):
+        for name in physical:
             link = backend.port(name)
             for field in ("address", "mtu", "flags", "addr_info"):
                 if link[field] != before[name]["link"][field]:
@@ -114,9 +119,14 @@ def fixture(evidence):
             if backend.features(name) != before[name]["features"] or backend.port_sysctls(name) != before[name]["sysctls"]:
                 raise AssertionError(f"{name} settings did not restore")
         # A second real setup catches leftovers that an idempotent down misses.
-        lab.up(["left0", "right0"], subnets("10.0.0.0/24", "10.0.1.0/24"))
+        if mode == "hybrid" and backend.namespace_inode(lab.host_namespace) is not None:
+            raise AssertionError("virtual endpoint namespace survived cleanup")
+        lab.up(devices, subnets("10.0.0.0/24", "10.0.1.0/24"), mode)
         lab.down()
-        (evidence / "result.json").write_text(json.dumps({"stage": 3, "lifecycle": "passed", "physical_acceptance": "not claimed"}, indent=2))
+        if mode == "hybrid" and backend.namespace_inode(lab.host_namespace) is not None:
+            raise AssertionError("virtual endpoint namespace survived repeated cleanup")
+        (evidence / "result.json").write_text(json.dumps({"stage": 3, "mode": mode,
+                                                         "lifecycle": "passed", "physical_acceptance": "not claimed"}, indent=2))
     finally:
         try:
             if router is not None:
@@ -135,14 +145,15 @@ def fixture(evidence):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--fixture", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--mode", choices=("physical", "hybrid"), default="physical", help=argparse.SUPPRESS)
     args = parser.parse_args()
     if os.geteuid() != 0:
         parser.error("run with sudo after make build")
     if args.fixture:
-        fixture(args.fixture)
+        fixture(args.fixture, args.mode)
         return
     backend = Linux()
-    for name in NAMES:
+    for name in (*NAMES, NAMES[3] + "-h1"):
         if backend.namespace_inode(name) is not None:
             raise LabError(f"refusing existing fixture namespace {name}")
     owner = (int(os.environ.get("SUDO_UID", os.geteuid())), int(os.environ.get("SUDO_GID", os.getegid())))
@@ -152,32 +163,43 @@ def main():
     if not artifacts.exists():
         artifacts.mkdir(mode=0o700)
         os.chown(artifacts, *owner)
-    evidence = Path(tempfile.mkdtemp(prefix="stage3-test-", dir=artifacts))
+    # Keep the fixture's management socket below the config's 100-byte limit
+    # even with the mode subdirectory in a GitHub-hosted checkout path.
+    evidence = Path(tempfile.mkdtemp(prefix="stage3-", dir=artifacts))
+    if len(str(evidence / "physical/state/r1.sock")) > 100:
+        raise LabError("fixture checkout path is too long for a Unix management socket")
     print(f"Stage 3 synthetic evidence: {evidence}", flush=True)
-    owned = []
     try:
-        for name in NAMES[:3]:
-            backend.namespace_create(name)
-            owned.append((name, backend.namespace_inode(name)))
-        # The child owns/deletes its router namespace; the parent tracks only
-        # its three fixtures and never touches host network configuration.
-        with (evidence / "fixture.log").open("w") as output:
-            process = subprocess.run(["ip", "netns", "exec", NAMES[0], "python3", "-B", str(Path(__file__).resolve()),
-                                      "--fixture", str(evidence)], stdout=output, stderr=output, timeout=180)
-        if process.returncode:
-            raise LabError(f"fixture failed; inspect {evidence / 'fixture.log'}")
-        print("Stage 3 namespace lifecycle and Linux endpoint regression passed; physical acceptance remains separate.")
+        for mode in ("physical", "hybrid"):
+            directory = evidence / mode
+            directory.mkdir(mode=0o700)
+            owned = []
+            try:
+                for name in NAMES[:3]:
+                    backend.namespace_create(name)
+                    owned.append((name, backend.namespace_inode(name)))
+                # The child owns its router and optional virtual endpoint;
+                # the parent tracks only fixtures. Host networking is untouched.
+                with (directory / "fixture.log").open("w") as output:
+                    process = subprocess.run(["ip", "netns", "exec", NAMES[0], "python3", "-B", str(Path(__file__).resolve()),
+                                              "--fixture", str(directory), "--mode", mode],
+                                             stdout=output, stderr=output, timeout=180)
+                if process.returncode:
+                    raise LabError(f"{mode} fixture failed; inspect {directory / 'fixture.log'}")
+                print(f"Stage 3 {mode} namespace lifecycle and Linux endpoint regression passed.", flush=True)
+            finally:
+                for name, identity in reversed(owned):
+                    if backend.namespace_inode(name) != identity or backend.pids(name):
+                        raise LabError(f"fixture {name} changed identity or is occupied; retaining it")
+                    backend.namespace_delete(name)
+        (evidence / "result.json").write_text(json.dumps({"stage": 3, "modes": ["physical", "hybrid"],
+                                                         "lifecycle": "passed", "physical_acceptance": "not claimed"}, indent=2))
+        print("Both Stage 3 fixtures passed; physical hardware acceptance remains separate.")
     finally:
-        try:
-            for name, inode in reversed(owned):
-                if backend.namespace_inode(name) != inode or backend.pids(name):
-                    raise LabError(f"fixture {name} changed identity or is occupied; retaining it")
-                backend.namespace_delete(name)
-        finally:
-            for path in (*evidence.rglob("*"), evidence):
-                if not path.is_symlink():
-                    path.chmod(0o700 if path.is_dir() else 0o600)
-                    os.chown(path, *owner)
+        for path in (*evidence.rglob("*"), evidence):
+            if not path.is_symlink():
+                path.chmod(0o700 if path.is_dir() else 0o600)
+                os.chown(path, *owner)
 
 
 if __name__ == "__main__":

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Own two unused physical Ethernet ports for the Stage 3 router lab.
+"""Own physical Ethernet ports and an optional virtual Stage 3 endpoint.
 
-The public CLI always checks for physical devices. Tests inject a backend;
-there is deliberately no CLI flag that bypasses the physical-port checks.
+Physical mode requires two physical ports. Explicit hybrid mode creates its
+own virtual left endpoint and still requires a physical right port.
 """
 import argparse
 import fcntl
@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import shutil
 import signal
 import stat
@@ -246,13 +247,29 @@ class Linux:
         return run("sysctl", "-n", f"net.ipv4.conf.{device}.forwarding",
                    f"net.ipv6.conf.{device}.disable_ipv6", namespace=namespace) == "0\n1"
 
+    def veth_create(self, router, device, host, peer, alias):
+        # Both ends are created atomically inside owned namespaces. The alias
+        # also identifies our cable if setup is interrupted before journaling
+        # its MACs/ifindices.
+        run("ip", "link", "add", "name", device, "alias", alias, "type", "veth",
+            "peer", "name", peer, "netns", host, namespace=router)
+
+    def endpoint_configure(self, namespace, device, network):
+        run("ip", "address", "add", f"{network[2]}/{network.prefixlen}", "dev", device, namespace=namespace)
+        run("ip", "route", "add", "default", "via", str(network[1]), "dev", device, namespace=namespace)
+
+    def endpoint_routes(self, namespace, device):
+        return json.loads(run("ip", "-j", "-4", "route", "show", "default", "dev", device, namespace=namespace))
+
 
 class Lab:
-    def __init__(self, backend=None, manager=None, state=STATE, namespace=NAMESPACE, artifacts=None):
+    def __init__(self, backend=None, manager=None, state=STATE, namespace=NAMESPACE, artifacts=None,
+                 host_namespace=None):
         self.backend = backend or Linux()
         self.manager = manager or NetworkManager()
         self.state = Path(state)
         self.namespace = namespace
+        self.host_namespace = host_namespace or ("gn3-h1" if namespace == NAMESPACE else namespace + "-h1")
         self.artifacts = Path(artifacts or ROOT / "artifacts")
 
     def save(self, manifest):
@@ -271,19 +288,33 @@ class Lab:
         if (manifest["version"] != 1 or manifest["namespace"] != self.namespace
                 or manifest["origin_inode"] != os.stat("/proc/self/ns/net").st_ino):
             raise LabError("manifest belongs to another version or namespace")
+        virtual = manifest.get("virtual")
+        if (manifest.get("mode", "physical") not in ("physical", "hybrid")
+                or bool(virtual) != (manifest.get("mode", "physical") == "hybrid")
+                or virtual and (virtual["namespace"] != self.host_namespace
+                                or virtual["router_device"] != "left0" or virtual["host_device"] != "gn0")):
+            raise LabError("invalid Stage 3 topology manifest")
         return manifest
 
-    def preflight(self, devices, networks):
+    def preflight(self, devices, networks, mode="physical"):
+        if mode not in ("physical", "hybrid") or len(devices) != 2 or len(networks) != 2:
+            raise LabError("select physical or hybrid mode with two subnet slots")
+        if mode == "physical" and (not all(devices) or len(set(devices)) != 2):
+            raise LabError("select two distinct physical Ethernet devices, or explicitly select hybrid mode")
+        if mode == "hybrid" and (devices[0] or not devices[1] or devices[1] == "left0"):
+            raise LabError("hybrid mode requires only a right physical device; left is the lab-owned virtual cable")
         if self.state.exists() or self.state.is_symlink():
             raise LabError(f"existing lab state at {self.state}; inspect or run down")
         if self.backend.namespace_inode(self.namespace) is not None:
             raise LabError(f"refusing existing namespace {self.namespace}")
+        if mode == "hybrid" and self.backend.namespace_inode(self.host_namespace) is not None:
+            raise LabError(f"refusing existing virtual endpoint namespace {self.host_namespace}")
         self.manager.available()
-        if len(set(devices)) != 2:
-            raise LabError("select two distinct Ethernet devices")
         links = self.backend.links()
         ports = []
         for logical, device, network in zip(("left", "right"), devices, networks):
+            if mode == "hybrid" and logical == "left":
+                continue
             if not re.fullmatch(r"[a-zA-Z0-9_-]{1,15}", device):
                 raise LabError(f"invalid or missing device name: {device!r}")
             link = self.backend.port(device)
@@ -305,7 +336,7 @@ class Lab:
                           "up": "UP" in link["flags"], "features": features, "network_manager": nm,
                           "sysctls": self.backend.port_sysctls(device),
                           "touched": False, "restored": False})
-        if ports[0]["identity"] == ports[1]["identity"]:
+        if len(ports) == 2 and ports[0]["identity"] == ports[1]["identity"]:
             raise LabError("ports do not have distinct hardware identities")
         for route in self.backend.routes():
             destination = route.get("dst", "default")
@@ -313,7 +344,14 @@ class Lab:
                 continue
             if any(ipaddress.IPv4Network(destination, strict=False).overlaps(network) for network in networks):
                 raise LabError(f"lab subnet overlaps existing route {destination}; choose alternate subnets")
-        return {"version": 1, "namespace": self.namespace,
+        virtual = None
+        if mode == "hybrid":
+            virtual = {"namespace": self.host_namespace, "namespace_inode": None,
+                       "router_device": "left0", "host_device": "gn0", "subnet": str(networks[0]),
+                       "alias": "goodnews-stage3-" + secrets.token_hex(16),
+                       "router_identity": None, "host_identity": None,
+                       "router_ifindex": None, "host_ifindex": None}
+        return {"version": 1, "namespace": self.namespace, "mode": mode, "virtual": virtual,
                 "origin_inode": os.stat("/proc/self/ns/net").st_ino, "namespace_inode": None,
                 "manager_touched": False, "ports": ports, "phase": "prepared"}
 
@@ -329,8 +367,70 @@ class Lab:
         if self.backend.identity(port["device"], namespace) != port["identity"]:
             raise LabError(f"{port['device']} hardware identity changed; refusing to touch it")
 
-    def up(self, devices, networks):
-        manifest = self.preflight(devices, networks)
+    def verify_host_namespace(self, manifest, idle=False):
+        virtual = manifest.get("virtual")
+        if not virtual:
+            return None
+        inode = self.backend.namespace_inode(virtual["namespace"])
+        if inode is not None and inode != virtual["namespace_inode"]:
+            raise LabError("virtual endpoint namespace identity changed; refusing to adopt it")
+        if idle and inode is not None and self.backend.pids(virtual["namespace"]):
+            raise LabError("virtual endpoint namespace has running processes; stop them before cleanup")
+        return inode
+
+    def verify_virtual(self, manifest, router_present, host_present):
+        virtual = manifest.get("virtual")
+        if not virtual:
+            return
+        router_links = {link["ifname"]: link for link in self.backend.links(self.namespace)} if router_present else {}
+        host_links = {link["ifname"]: link for link in self.backend.links(virtual["namespace"])} if host_present else {}
+        if host_links.keys() - {"lo", virtual["host_device"]}:
+            raise LabError("unexpected devices in virtual endpoint namespace; refusing cleanup")
+        a, b = router_links.get(virtual["router_device"]), host_links.get(virtual["host_device"])
+        if a is None and b is None:
+            return
+        if (a is None or b is None or a.get("ifalias") != virtual["alias"]
+                or any(link.get("linkinfo", {}).get("info_kind") != "veth" for link in (a, b))
+                or a.get("link_index") != b["ifindex"] or b.get("link_index") != a["ifindex"]):
+            raise LabError("virtual cable identity changed; refusing to touch it")
+        for side, link, namespace, device in (("router", a, self.namespace, virtual["router_device"]),
+                                              ("host", b, virtual["namespace"], virtual["host_device"])):
+            if virtual[side + "_identity"] is not None:
+                if (link["ifindex"] != virtual[side + "_ifindex"]
+                        or self.backend.identity(device, namespace) != virtual[side + "_identity"]):
+                    raise LabError("virtual cable identity changed; refusing to touch it")
+
+    def disable_offloads(self, device, namespace):
+        for name, current in self.backend.features(device, namespace).items():
+            if name in AGGREGATION and current["on"] and current["fixed"]:
+                raise LabError(f"{device}: required aggregation offload {name} is fixed on")
+            if name in OFFLOADS and current["on"] and not current["fixed"]:
+                self.backend.feature(device, name, False, namespace)
+
+    def create_virtual(self, manifest):
+        virtual = manifest.get("virtual")
+        if not virtual:
+            return
+        host = virtual["namespace"]
+        self.backend.namespace_create(host)
+        virtual["namespace_inode"] = self.backend.namespace_inode(host)
+        self.save(manifest)
+        self.backend.isolate(host)
+        self.backend.veth_create(self.namespace, virtual["router_device"], host,
+                                 virtual["host_device"], virtual["alias"])
+        for side, namespace, device in (("router", self.namespace, virtual["router_device"]),
+                                         ("host", host, virtual["host_device"])):
+            virtual[side + "_identity"] = self.backend.identity(device, namespace)
+            virtual[side + "_ifindex"] = self.backend.port(device, namespace)["ifindex"]
+        self.save(manifest)
+        for namespace, device in ((self.namespace, virtual["router_device"]), (host, virtual["host_device"])):
+            self.backend.isolate_port(device, namespace)
+            self.disable_offloads(device, namespace)
+            self.backend.link(device, namespace, mtu=1500, up=True)
+        self.backend.endpoint_configure(host, virtual["host_device"], ipaddress.IPv4Network(virtual["subnet"]))
+
+    def up(self, devices, networks, mode="physical"):
+        manifest = self.preflight(devices, networks, mode)
         self.state.mkdir(mode=0o700)
         self.save(manifest)
         try:
@@ -352,16 +452,18 @@ class Lab:
                 self.backend.link(port["device"], up=False)
                 self.backend.move(port["device"], None, self.namespace)
                 self.backend.isolate_port(port["device"], self.namespace)
-                for feature in OFFLOADS:
-                    current = self.backend.features(port["device"], self.namespace).get(feature)
-                    if current and current["on"] and not current["fixed"]:
-                        self.backend.feature(port["device"], feature, False, self.namespace)
+                self.disable_offloads(port["device"], self.namespace)
                 self.backend.link(port["device"], self.namespace, mtu=1500, up=True)
+            self.create_virtual(manifest)
             config = {"version": 1, "router_id": "r1", "interfaces": [], "routes": [],
                       "observability": {"directory": str(self.artifacts / "runs"),
                                         "socket": str(self.state / "r1.sock")},
                       "protections": {"verify_ipv4_checksum": True, "decrement_ttl": True}}
-            for port in manifest["ports"]:
+            attachments = list(manifest["ports"])
+            if manifest.get("virtual"):
+                attachments.insert(0, {"logical": "left", "device": manifest["virtual"]["router_device"],
+                                       "subnet": manifest["virtual"]["subnet"]})
+            for port in attachments:
                 network = ipaddress.IPv4Network(port["subnet"])
                 config["interfaces"].append({"name": port["logical"], "address": f"{network[1]}/{network.prefixlen}",
                                              "mtu": 1500, "driver": "ethernet", "device": port["device"]})
@@ -386,6 +488,8 @@ class Lab:
         self.manager.verify(manifest["ports"])
         links = self.backend.links(self.namespace)
         expected = {"lo", *(port["device"] for port in manifest["ports"])}
+        if manifest.get("virtual"):
+            expected.add(manifest["virtual"]["router_device"])
         if {link["ifname"] for link in links} != expected:
             raise LabError("unexpected devices in router namespace")
         for link in links:
@@ -402,6 +506,33 @@ class Lab:
             for name, feature in self.backend.features(port["device"], self.namespace).items():
                 if name in OFFLOADS and feature["on"] and not feature["fixed"]:
                     raise LabError(f"{port['device']} offload {name} is still enabled")
+        virtual = manifest.get("virtual")
+        if virtual:
+            host = virtual["namespace"]
+            if self.verify_host_namespace(manifest) is None:
+                raise LabError("virtual endpoint namespace is missing")
+            self.verify_virtual(manifest, True, True)
+            if self.backend.forwarding(host) != "0":
+                raise LabError("kernel forwarding enabled in virtual endpoint namespace")
+            for namespace, device in ((self.namespace, virtual["router_device"]), (host, virtual["host_device"])):
+                link = self.backend.port(device, namespace)
+                if ("UP" not in link["flags"] or link["mtu"] != 1500
+                        or not self.backend.isolated_port(device, namespace)):
+                    raise LabError("virtual endpoint link settings or isolation changed")
+                if namespace == self.namespace and link.get("addr_info"):
+                    raise LabError("virtual router port must remain address-free")
+                for name, feature in self.backend.features(device, namespace).items():
+                    if name in OFFLOADS and feature["on"] and (not feature["fixed"] or name in AGGREGATION):
+                        raise LabError(f"virtual cable offload {name} is still enabled")
+            network = ipaddress.IPv4Network(virtual["subnet"])
+            addresses = self.backend.port(virtual["host_device"], host).get("addr_info", [])
+            if (len(addresses) != 1 or addresses[0].get("family") != "inet"
+                    or addresses[0].get("local") != str(network[2]) or addresses[0].get("prefixlen") != network.prefixlen):
+                raise LabError("virtual endpoint address changed")
+            routes = self.backend.endpoint_routes(host, virtual["host_device"])
+            if (len(routes) != 1 or routes[0].get("gateway") != str(network[1])
+                    or routes[0].get("dev") != virtual["host_device"]):
+                raise LabError("virtual endpoint route changed")
         return manifest
 
     def restore_features(self, port):
@@ -435,7 +566,8 @@ class Lab:
             os.chown(self.artifacts, uid, gid)
         directory = Path(tempfile.mkdtemp(prefix="stage3-lifecycle-", dir=self.artifacts))
         write_json(directory / "settings.json", manifest)
-        write_json(directory / "result.json", {"stage": 3, "lifecycle": "restored", "physical_acceptance": "not claimed"})
+        write_json(directory / "result.json", {"stage": 3, "mode": manifest.get("mode", "physical"),
+                                               "lifecycle": "restored", "physical_acceptance": "not claimed"})
         for path in (*directory.iterdir(), directory):
             os.chown(path, uid, gid)
         return directory
@@ -452,10 +584,15 @@ class Lab:
                     and info.st_uid == os.geteuid() and info.st_nlink == 1):
                 raise LabError(f"unexpected lab state file {path}; refusing cleanup")
         inode = self.verify_namespace(manifest, idle=True)
+        host_inode = self.verify_host_namespace(manifest, idle=True)
         origin = {link["ifname"] for link in self.backend.links()}
         target = {link["ifname"] for link in self.backend.links(self.namespace)} if inode else set()
-        if target - {"lo", *(port["device"] for port in manifest["ports"])}:
+        expected = {"lo", *(port["device"] for port in manifest["ports"])}
+        if manifest.get("virtual"):
+            expected.add(manifest["virtual"]["router_device"])
+        if target - expected:
             raise LabError("unexpected devices in router namespace; refusing cleanup")
+        self.verify_virtual(manifest, inode is not None, host_inode is not None)
         # Validate every port before restoring either, so replacement never
         # causes partial cleanup of an otherwise healthy lab.
         locations = {}
@@ -488,6 +625,10 @@ class Lab:
             self.backend.namespace_delete(self.namespace)
             manifest["namespace_inode"] = None
             self.save(manifest)
+        if host_inode:
+            self.backend.namespace_delete(manifest["virtual"]["namespace"])
+            manifest["virtual"]["namespace_inode"] = None
+            self.save(manifest)
         if manifest["manager_touched"]:
             self.manager.restore(manifest["ports"])
             manifest["manager_touched"] = False
@@ -509,7 +650,8 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     for command in ("preflight", "up"):
         sub = commands.add_parser(command)
-        sub.add_argument("--left-device", required=True)
+        sub.add_argument("--mode", choices=("physical", "hybrid"), default="physical")
+        sub.add_argument("--left-device", default="")
         sub.add_argument("--right-device", required=True)
         sub.add_argument("--left-subnet", default="10.0.0.0/24")
         sub.add_argument("--right-subnet", default="10.0.1.0/24")
@@ -523,7 +665,7 @@ def main():
             parser.error(f"missing tool: {tool}")
     if args.command == "preflight":
         print(json.dumps(Lab().preflight([args.left_device, args.right_device],
-                                        subnets(args.left_subnet, args.right_subnet)), indent=2))
+                                        subnets(args.left_subnet, args.right_subnet), args.mode), indent=2))
         return
     # Lock lives outside the state directory so removing state cannot split
     # concurrent up/down operations across two different lock-file inodes.
@@ -542,8 +684,10 @@ def main():
         if args.command == "up":
             networks = subnets(args.left_subnet, args.right_subnet)
             devices = [args.left_device, args.right_device]
-            lab.up(devices, networks)
+            lab.up(devices, networks, args.mode)
             print(f"Ready. Run: sudo ip netns exec {NAMESPACE} ./bin/goodnews run --config {STATE}/router.json")
+            if args.mode == "hybrid":
+                print(f"Virtual left host: {lab.host_namespace} ({networks[0][2]}); physical right endpoint: {networks[1][2]}/{networks[1].prefixlen}, gateway {networks[1][1]}")
         elif args.command == "check":
             lab.check()
             print("Stage 3 settings verified; check carrier and perform physical endpoint acceptance.")

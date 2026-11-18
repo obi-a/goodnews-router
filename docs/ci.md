@@ -12,7 +12,7 @@ Linux, Windows, or macOS. Windows/macOS binary builds are not applicable.
 | Workflow syntax and expressions | `make workflow-lint` (actionlint 1.7.12) |
 | Stage 1 TUN acceptance | `make integration` |
 | Stage 2 Ethernet/ARP/impairment acceptance | `make integration2` |
-| Stage 3 synthetic namespace lifecycle and Linux endpoint regression | `make integration3` |
+| Stage 3 physical/hybrid lifecycle and Linux endpoint fixtures | `make integration3` |
 | Stage 4 six-router DV/LS convergence and failure acceptance | `make integration4` |
 
 CI also runs the root-only artifact ownership test and imports actual networking

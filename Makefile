@@ -3,7 +3,8 @@ TESTFLAGS ?= -race -count=1
 FUZZ_TIME ?= 10s
 LEFT_SUBNET ?= 10.0.0.0/24
 RIGHT_SUBNET ?= 10.0.1.0/24
-export LEFT_DEVICE RIGHT_DEVICE LEFT_SUBNET RIGHT_SUBNET
+MODE ?= physical
+export LEFT_DEVICE RIGHT_DEVICE LEFT_SUBNET RIGHT_SUBNET MODE
 # Keep package discovery in source directories, separate from lab artifacts.
 PACKAGES = . ./cmd/... ./drivers/... ./internal/...
 
@@ -60,10 +61,10 @@ integration2: build
 
 .PHONY: lab3-preflight lab3-up lab3-check lab3-down integration3 workflow-lint
 lab3-preflight:
-	sudo python3 -B lab/stage3.py preflight --left-device "$$LEFT_DEVICE" --right-device "$$RIGHT_DEVICE" --left-subnet "$$LEFT_SUBNET" --right-subnet "$$RIGHT_SUBNET"
+	sudo python3 -B lab/stage3.py preflight --mode "$$MODE" --left-device "$$LEFT_DEVICE" --right-device "$$RIGHT_DEVICE" --left-subnet "$$LEFT_SUBNET" --right-subnet "$$RIGHT_SUBNET"
 
 lab3-up:
-	sudo python3 -B lab/stage3.py up --left-device "$$LEFT_DEVICE" --right-device "$$RIGHT_DEVICE" --left-subnet "$$LEFT_SUBNET" --right-subnet "$$RIGHT_SUBNET"
+	sudo python3 -B lab/stage3.py up --mode "$$MODE" --left-device "$$LEFT_DEVICE" --right-device "$$RIGHT_DEVICE" --left-subnet "$$LEFT_SUBNET" --right-subnet "$$RIGHT_SUBNET"
 
 lab3-check:
 	sudo python3 -B lab/stage3.py check

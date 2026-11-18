@@ -6,9 +6,10 @@ veth, ARP, and runtime fault controls. Stage 4 adds distance vector and link
 state over a six-router virtual Ethernet lab. Fragmentation, NAT, and a
 controller are later stages.
 
-Stage 3 adds reversible setup for two unused physical Ethernet ports, with
-Linux, Windows, and macOS endpoint instructions. Physical hardware acceptance
-is a separate gate; Wi-Fi can remain connected for management.
+Stage 3 adds reversible setup for two physical Ethernet ports, or explicit
+hybrid mode with one physical port and one virtual endpoint. Linux, Windows,
+and macOS endpoint instructions are included. Physical hardware acceptance is
+a separate gate; Wi-Fi can remain connected for management.
 
 The router owns its addresses in Go. It does not assign them to kernel
 interfaces. The lab disables kernel forwarding, and traffic stops when the
@@ -20,8 +21,8 @@ Choose a guide to inspect the router:
 
 - [Stage 4 routing protocols](docs/stage4.md): discover neighbors, compare
   Bellman–Ford with Dijkstra, and reroute around failures using virtual cables.
-- [Stage 3 physical Ethernet lab](docs/stage3.md): connect physical Linux,
-  Windows, or macOS hosts, then restore the Ubuntu ports and endpoint settings.
+- [Stage 3 physical Ethernet lab](docs/stage3.md): use two laptops with a virtual
+  left endpoint, or three laptops with two physical endpoints, then restore settings.
 - [Continuous integration](docs/ci.md): automated coverage, saved evidence,
   local checks, and the required merge check.
 - [Stage 2 Ethernet lab](docs/stage2.md): route over virtual Ethernet cables,
