@@ -272,6 +272,26 @@ class HybridTests(unittest.TestCase):
                     self.up()
                 self.assert_restored()
 
+    def test_endpoint_default_must_use_virtual_cable(self):
+        self.up()
+        self.backend.defaults[self.lab.host_namespace][0]["dev"] = "lo"
+        with self.assertRaisesRegex(LabError, "endpoint route changed"):
+            self.lab.check()
+        self.lab.down()
+        self.assert_restored()
+
+    def test_default_route_inspection_preserves_device_field(self):
+        expected = [{"dst": "default", "gateway": "10.0.0.1", "dev": "gn0"}]
+
+        def iproute(*args, **kwargs):
+            routes = copy.deepcopy(expected)
+            if "dev" in args:
+                routes[0].pop("dev")
+            return json.dumps(routes)
+
+        with patch("stage3.run", side_effect=iproute):
+            self.assertEqual(Linux().endpoint_routes("test-r1-h1", "gn0"), expected)
+
 
 if __name__ == "__main__":
     unittest.main()

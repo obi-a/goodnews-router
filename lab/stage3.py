@@ -275,7 +275,10 @@ class Linux:
         run("ip", "route", "add", "default", "via", str(network[1]), "dev", device, namespace=namespace)
 
     def endpoint_routes(self, namespace, device):
-        return json.loads(run("ip", "-j", "-4", "route", "show", "default", "dev", device, namespace=namespace))
+        # A `dev` selector can suppress that field in iproute2's JSON output.
+        # Inspect all defaults so check() can validate both the gateway and
+        # the actual device, and reject an unexpected alternate default.
+        return json.loads(run("ip", "-j", "-4", "route", "show", "default", namespace=namespace))
 
 
 class Lab:
@@ -560,7 +563,7 @@ class Lab:
             routes = self.backend.endpoint_routes(host, virtual["host_device"])
             if (len(routes) != 1 or routes[0].get("gateway") != str(network[1])
                     or routes[0].get("dev") != virtual["host_device"]):
-                raise LabError("virtual endpoint route changed")
+                raise LabError(f"virtual endpoint route changed: {json.dumps(routes, sort_keys=True)}")
         return manifest
 
     def restore_features(self, port):
