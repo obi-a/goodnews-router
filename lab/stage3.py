@@ -404,7 +404,8 @@ class Lab:
             return
         if (a is None or b is None or a.get("ifalias") != virtual["alias"]
                 or any(link.get("linkinfo", {}).get("info_kind") != "veth" for link in (a, b))):
-            raise LabError("virtual cable identity changed; refusing to touch it")
+            details = json.dumps({"expected_alias": virtual["alias"], "router": a, "host": b}, sort_keys=True)
+            raise LabError(f"virtual cable identity changed; refusing to touch it: {details}")
         if (self.backend.veth_peer_ifindex(virtual["router_device"], self.namespace) != b["ifindex"]
                 or self.backend.veth_peer_ifindex(virtual["host_device"], virtual["namespace"]) != a["ifindex"]):
             raise LabError("virtual cable peer identity changed; refusing to touch it")
