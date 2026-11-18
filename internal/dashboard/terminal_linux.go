@@ -102,7 +102,7 @@ func (d *keyDecoder) Feed(input []byte) []string {
 	sequences := map[string]string{"\x1b[A": "up", "\x1b[B": "down", "\x1b[H": "home", "\x1b[F": "end", "\x1bOH": "home", "\x1bOF": "end", "\x1b[1~": "home", "\x1b[4~": "end", "\x1b[7~": "home", "\x1b[8~": "end", "\x1b[5~": "pageup", "\x1b[6~": "pagedown"}
 	for len(d.pending) > 0 {
 		if d.pending[0] != 27 {
-			key := map[byte]string{'q': "quit", 3: "quit", 'r': "reconnect", 'j': "down", 'k': "up", 'g': "home", 'G': "end", '\t': "tab", ' ': "pause", '\r': "enter", '\n': "enter"}[d.pending[0]]
+			key := map[byte]string{'t': "tables", 'n': "next-router", 'p': "previous-router", 'q': "quit", 3: "quit", 'r': "reconnect", 'j': "down", 'k': "up", 'g': "home", 'G': "end", '\t': "tab", ' ': "pause", '\r': "enter", '\n': "enter"}[d.pending[0]]
 			d.pending = d.pending[1:]
 			if key != "" {
 				keys = append(keys, key)

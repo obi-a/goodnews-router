@@ -105,6 +105,20 @@ func Run(ctx context.Context, options Options) (err error) {
 		case snapshot := <-updates:
 			model.Observe(snapshot, store.Info.RunID)
 		case key := <-keys:
+			if key == "tables" {
+				if client == nil {
+					model.Message = "Router inspector needs a live connection; open with --config FILE."
+				} else {
+					quit, inspectErr := inspect(ctx, terminal, keys, options.Socket)
+					if inspectErr != nil {
+						return inspectErr
+					}
+					if quit {
+						return nil
+					}
+					terminal.lastFrame = ""
+				}
+			}
 			_, height := terminal.Size()
 			switch model.Key(key, store.Count(), height) {
 			case "quit":

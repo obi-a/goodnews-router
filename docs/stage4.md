@@ -66,6 +66,9 @@ conflicting host routes. Router interfaces have no kernel IP addresses and
 kernel forwarding is disabled in all twelve namespaces. The `.1` addresses
 belong to Go; endpoint kernels use them as gateways through normal ARP.
 
+For full forwarding tables, router switching, pause controls, and guided
+`badnews` experiments, see the [router inspector walkthrough](dashboard.md#inspect-stage-4-routers).
+
 ## Predict and inspect a path
 
 Predict the route from u to z before running:
