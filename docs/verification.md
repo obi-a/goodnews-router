@@ -324,6 +324,28 @@ partial setup rollback, cleanup retry, endpoint drift, and alternate subnets.
 AF_PACKET forwarding, bidirectional ping/traceroute, ARP/TTL/checksum capture
 checks, stopped-router failure, settings restoration, and repeated lifecycle
 checks. Its local invocation could not launch because sudo requires interactive
-authentication. The new hybrid fixture has not yet been run on privileged CI;
-the earlier passing Stage 3 CI predates this extension. Real Ethernet hardware
-acceptance also remains pending.
+authentication; subsequent hosted acceptance is recorded below. Real Ethernet
+hardware acceptance remains pending.
+
+### Hosted hybrid acceptance
+
+[Hosted CI for commit 52f974d](https://github.com/obi-a/goodnews-router/actions/runs/44275375287)
+passed both the physical and hybrid Stage 3 fixtures using real namespaces,
+veth devices, and AF_PACKET forwarding. Both fixtures verified bidirectional
+ping/traceroute, ARP/TTL/checksum captures, stopped-router failure, settings
+restoration, and repeated cleanup. The
+[retained Stage 3 evidence](https://github.com/obi-a/goodnews-router/actions/runs/44275375287/artifacts/14415081057)
+contains each mode's successful result and diagnostic artifacts.
+
+The first hosted hybrid runs exposed two Linux reporting/setup differences:
+the ownership alias needed an explicit assignment after veth creation, and a
+device-filtered route query omitted the device field used by verification.
+The setup now journals cable identities before tagging, safely rolls back a
+failed tag operation, and inspects unfiltered default routes. Peer identity
+can also use veth's `ethtool` statistics when iproute2 omits the peer index.
+These behaviors are covered by regression tests; all 42 Python tests pass.
+Fixture failures now include their diagnostics in the CI log.
+
+This validates the automated hybrid lifecycle. The actual Ethernet adapter,
+physical Ubuntu endpoint, and original two-physical-endpoint gate still need
+their own hardware evidence.
