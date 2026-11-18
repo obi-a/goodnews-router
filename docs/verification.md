@@ -178,3 +178,174 @@ validation drops, TTL/route ICMP responses, local ICMP rejection and forwarding
 of transit ICMP with an invalid transport checksum. These checks used the
 forwarding engine directly; outage and namespace-interface observations remain
 manual lab exercises.
+
+## CI and Stage 3 implementation (2026-11-13)
+
+Added CI for both binaries, all source packages, race-enabled tests with
+coverage, vet, module verification, source/workflow syntax, Python lifecycle
+tests, both fuzz targets, and all three namespace acceptance targets. CI also
+runs the root-only ownership test and imports actual acceptance JSONL into a
+disposable PostgreSQL service. The stable `CI required` aggregate must be
+enabled in repository branch protection after the workflow's first hosted run;
+this implementation has not changed remote repository settings.
+
+Local build/race/vet/module/source checks and both 10-second fuzz targets passed.
+The pinned actionlint 1.7.12 validator accepted the workflow. Python tests cover
+setup rollback, recovery across cleanup failures, missing/replaced adapters,
+namespace/process ownership, unexpected files, subnet conflicts, offload
+dependency restoration, and NetworkManager exclusion ownership.
+
+A disposable, unprivileged PostgreSQL 18 server under `/tmp` verified import
+and comparison of the existing dashboard fixture (seven trace records and six
+counter snapshots), plus a separate JSON escaping case. The server was stopped
+and its temporary database removed. The CI service uses PostgreSQL 17; its
+fresh acceptance evidence import remains to be exercised on GitHub.
+
+The physical Stage 3 lifecycle selects unused Ethernet ports, excludes them
+from NetworkManager, moves them into an isolated router namespace, and records
+settings for restoration. The synthetic acceptance harness uses veth devices
+and an injected NetworkManager backend; it does not certify hardware. Linux,
+Windows, and macOS endpoint setup and restoration are documented in stage3.md.
+The existing forwarding implementation and Stage 1/2 lab interfaces are intact.
+
+Privileged networking acceptance and the root-only ownership test were not run
+in this session: host sudo requires interactive authentication, Docker access
+is unavailable, and isolated user-namespace creation was denied by the host.
+No physical Ethernet adapters were available for the hardware gate. Run
+`make integration`, `make integration2`, and `make integration3` on a privileged
+host, then complete the physical guide and retain the resulting evidence.
+No passing Stage 3 hardware or hosted CI result is claimed here.
+
+## Hosted CI validation (2026-11-14)
+
+[The full CI run for commit 76d5b9b](https://github.com/obi-a/goodnews-router/actions/runs/43634881764)
+passed on GitHub-hosted Ubuntu 24.04 runners: both binary builds, race-enabled
+tests, vet/source/workflow checks, both fuzz targets, Stage 1 TUN acceptance,
+the root-only artifact ownership test, PostgreSQL 17 import of fresh networking
+evidence, Stage 2 Ethernet/ARP/impairment acceptance, and Stage 3 synthetic
+lifecycle acceptance. The `CI required` aggregate passed. Each networking job
+retained its evidence as a workflow artifact.
+
+The first hosted run exposed an ordering error in the existing Stage 2 harness:
+it inspected the management socket after clean shutdown had removed it. The
+ownership/mode assertion now runs before shutdown; the stopped-router and
+cleanup checks remain in place. No forwarding behavior changed.
+
+This closes the automated Stage 1 and Stage 2 privileged namespace gates.
+Stage 3 physical adapters, real NetworkManager behavior, and Windows/macOS/Linux
+physical endpoint acceptance remain separate pending gates. Branch protection
+still needs the `CI required` check enabled by a repository administrator.
+
+## Stage 4 virtual routing implementation (2026-11-16)
+
+Implemented both config-selected routing algorithms, the bounded protocol-253
+wire format, bidirectional hello/dead timers, persistent startup incarnations,
+DV vector expiry/poisoned reverse, LS flooding/aging/synchronization, weighted
+Bellman–Ford and Dijkstra, runtime cost changes, atomic versioned FIB updates,
+neighbor/LSDB management snapshots, and algorithm JSONL logs. The six-router
+namespace/veth lifecycle and privileged acceptance harness are in `lab/stage4.py`
+and `lab/acceptance_stage4.py`; the workflow has a separate Stage 4 job.
+The [lab guide](stage4.md) and [wire contract](stage4-protocol.md) describe them.
+
+`make check build` passed with the race detector, vet, Go/Bash/Python source
+checks, module verification, all Python lifecycle/export tests, both binary
+builds, and the existing Stage 1/2/runtime/dashboard regressions. The routing
+tests cover the exact textbook metrics/first hops, additional hand-worked
+chain/tie/disconnected graphs, directed costs, router failure, partition
+withdrawal, restart with old state still present, wrong/stale control input,
+vector/LSA expiry, tombstones, state limits, incarnation persistence, and
+concurrent snapshots.
+
+Two runtime layers were checked without privileged namespace creation:
+`TestRoutingRuntimeEthernetARPAndFIBHistory` drives actual Ethernet frames
+through ARP, neighbor confirmation, learned-route forwarding, cost/down
+changes, management, and persisted packet/FIB/algorithm histories.
+`TestRoutingWorkersExchangeOverVirtualEthernet` runs all six concurrent runtime
+workers over paired in-memory Ethernet links for each algorithm and verifies
+convergence and live cost changes. These tests exercise the real runtime and
+codec, but do not certify AF_PACKET or the namespace setup scripts.
+
+`make fuzz` passed all three ten-second targets: IPv4 parsing executed 319,477
+cases; Ethernet/ARP parsing 308,351; routing decoding 327,723. Generated DV and
+LS configs were checked with `goodnews check`. The updated workflow passed
+actionlint 1.7.12.
+
+The failure/partition simulation exposed multi-router DV counting loops despite
+poisoned reverse. DV advertisements now carry a hop count in addition to their
+weighted cost; paths requiring 16 hops are unreachable, consistent with the
+16-router lab envelope. This bounds those loops without claiming immediate
+convergence or production routing-protocol behavior.
+
+`make integration4` was attempted after building. Host sudo refused to launch
+the harness with `sudo: A terminal is required to authenticate`. At that point,
+no Stage 4 namespace acceptance result or passing hosted run was claimed.
+The subsequent hosted result below supplies the required privileged evidence.
+Stage 3 physical acceptance remains pending.
+
+## Hosted Stage 4 acceptance (2026-11-16)
+
+[The full CI run for commit f877884](https://github.com/obi-a/goodnews-router/actions/runs/44007507599)
+passed on GitHub-hosted Ubuntu 24.04: builds/checks, fuzzing, Stage 1–4
+acceptance, artifact ownership, PostgreSQL import, and the `CI required`
+aggregate. The Stage 4 job ran `make integration4` with actual namespaces,
+veth cables, and AF_PACKET sockets for both DV and LS. It verified textbook
+routes, directed cost changes, failed links, stopped/restarted routers,
+partitions, continuous-ping loss/recovery, traceroute, captured TTL/checksums,
+stopped-router failure, and repeated cleanup.
+
+[The retained Stage 4 artifact](https://github.com/obi-a/goodnews-router/actions/runs/44007507599/artifacts/14295515974)
+contains configs, command logs, convergence records, captures, packet/FIB/
+algorithm histories, and successful result files for both algorithms. This
+closes Stage 4's privileged virtual-lab gate. Stage 3's physical adapter and
+real endpoint gate remains pending.
+
+## Stage 3 two-laptop hybrid mode (2026-11-18)
+
+Added explicit `MODE=hybrid` setup with one selected physical `RIGHT_DEVICE`
+and a lab-created virtual left endpoint (`gn3-h1`, `10.0.0.2/24`). The original
+two-port physical mode remains the default. Carrier loss never switches modes,
+and the physical-device predicate still applies to every selected real port.
+See [the two-laptop guide](stage3.md#two-laptop-hybrid-lab) for commands on both
+Ubuntu laptops, address/route settings, inspection, failure checks, and cleanup.
+
+The state manifest records the mode, virtual namespace inode, cable alias,
+MACs, and ifindices. Setup configures endpoint routes and software checksums;
+cleanup restores the one physical port and removes the owned virtual endpoint.
+Busy or replaced namespaces/cables are refused before physical-port recovery.
+The Go forwarding code is unchanged.
+
+`make check build` passed: race-enabled Go regressions, vet, formatting/source
+checks, module verification, both builds, and 36 Python tests. Ten new hybrid
+tests cover repeated setup/cleanup, explicit mode selection, unchanged carrier
+semantics, physical-port validation, preexisting/busy/replaced virtual resources,
+partial setup rollback, cleanup retry, endpoint drift, and alternate subnets.
+
+`make integration3` now runs separate physical and hybrid fixtures, including
+AF_PACKET forwarding, bidirectional ping/traceroute, ARP/TTL/checksum capture
+checks, stopped-router failure, settings restoration, and repeated lifecycle
+checks. Its local invocation could not launch because sudo requires interactive
+authentication; subsequent hosted acceptance is recorded below. Real Ethernet
+hardware acceptance remains pending.
+
+### Hosted hybrid acceptance
+
+[Hosted CI for commit 52f974d](https://github.com/obi-a/goodnews-router/actions/runs/44275375287)
+passed both the physical and hybrid Stage 3 fixtures using real namespaces,
+veth devices, and AF_PACKET forwarding. Both fixtures verified bidirectional
+ping/traceroute, ARP/TTL/checksum captures, stopped-router failure, settings
+restoration, and repeated cleanup. The
+[retained Stage 3 evidence](https://github.com/obi-a/goodnews-router/actions/runs/44275375287/artifacts/14415081057)
+contains each mode's successful result and diagnostic artifacts.
+
+The first hosted hybrid runs exposed two Linux reporting/setup differences:
+the ownership alias needed an explicit assignment after veth creation, and a
+device-filtered route query omitted the device field used by verification.
+The setup now journals cable identities before tagging, safely rolls back a
+failed tag operation, and inspects unfiltered default routes. Peer identity
+can also use veth's `ethtool` statistics when iproute2 omits the peer index.
+These behaviors are covered by regression tests; all 42 Python tests pass.
+Fixture failures now include their diagnostics in the CI log.
+
+This validates the automated hybrid lifecycle. The actual Ethernet adapter,
+physical Ubuntu endpoint, and original two-physical-endpoint gate still need
+their own hardware evidence.

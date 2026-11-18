@@ -25,7 +25,7 @@ flowchart LR
         H1 ---|"10.0.0.0/24, TUN then veth"| R1
         R1 ---|"10.0.1.0/24, TUN then veth"| H2
     end
-    subgraph PHYSICAL["Stage 3 onward, three real machines"]
+    subgraph PHYSICAL["Stage 3 physical acceptance, three real machines"]
         WIN["Windows laptop<br/>10.0.0.2"]
         LIN["Linux laptop, our router program<br/>10.0.0.1 and 10.0.1.1"]
         MAC["Mac<br/>10.0.1.2"]
@@ -62,6 +62,10 @@ Each requirement has a test you can watch, so done is never a matter of opinion.
 | R16 | Translate addresses with a NAT table | 5 | 4 | Outside capture shows only the router's address |
 | R17 | Forward by match and action rules in a flow table | 6 | 4 | Rules on port or protocol steer traffic differently |
 | R18 | Accept rules from one central controller | 6 | 5 | Routers run no routing process and traffic still flows |
+| R28 | Exchange standard RIPv2 routes with an independent peer | 7A | 5 | FRR and goodnews learn/withdraw prefixes; endpoint traffic follows the Go FIB |
+| R29 | Form single-area point-to-point OSPFv2 adjacencies with an independent peer | 7B | 5 | FRR adjacency/LSDB and predicted routes agree, including failure recovery |
+| R30 | Exchange IPv4 unicast BGP routes and apply AS-path/policy decisions | 8 | 5 | FRR peering, loop rejection, withdrawal and policy changes affect forwarding |
+| R31 | Forward between a Wi-Fi client and another subnet through goodnews | 9 | 4, 6 | A client joins the lab SSID; bidirectional traffic stops when goodnews stops |
 
 Four constraints apply to every stage.
 
@@ -137,7 +141,7 @@ Nothing in the data plane knows which routing algorithm is running. That is why 
 | Controller | `controller.go` | Computes rules centrally and pushes them out | 6 | R17, R18 |
 | Lab scripts | `lab/` | Builds namespaces and cables, runs the exit tests | 1 | All |
 
-The implemented command line program is `goodnews`, which runs the router and answers `goodnews show` queries while it runs. A second program, `badnews`, implements Stage 2 runtime link state, delay, loss, corruption and `clear` controls. See `docs/stage2.md`. Commands such as `badnews link y-x cost 60` remain future interfaces: cost changes become routing inputs in Stage 4.
+The implemented command line program is `goodnews`, which runs the router and answers `goodnews show` queries while it runs. A second program, `badnews`, implements runtime link state, delay, loss, corruption and `clear` controls. Stage 4 adds `badnews link NAME cost N` for routing-enabled interfaces. See `docs/stage2.md` and `docs/stage4.md`.
 
 Stage 1 already offers fault experiments using crafted malformed packets, TTL expiry, missing routes, protection switches and stopping the router. `docs/stage1-experiments.md` documents those commands and their expected observations. The new `badnews` also applies egress impairments to TUN links; the Stage 1 exercises remain available without it.
 
@@ -197,9 +201,19 @@ Ethernet and ARP come before routing protocols. Routers need real links between 
 1. **Forwarding over TUN, in namespaces (R1 to R7).** Exit test is real `traceroute` from one namespace to the other showing our router as a hop.
 2. **Ethernet and ARP over virtual cables (R8, R9).** Exit test is the same ping, now with ARP visible in Wireshark.
 3. **Physical laptops (R10).** Exit test is `tracert` on Windows and `traceroute` on the Mac both crossing our router.
-4. **Routing protocols (R11 to R14).** Six router processes form the textbook's example graph with routers u through z. Exit test is that router u reaches v at cost 2, x at 1, y at 2, w at 3 and z at 4, with everything except v leaving via x. Then repeat with other graphs worked by hand.
+4. **Routing algorithms using a custom teaching protocol (R11 to R14).** Six router processes form the textbook's example graph with routers u through z. Exit test is that router u reaches v at cost 2, x at 1, y at 2, w at 3 and z at 4, with everything except v leaving via x. Then repeat with other graphs worked by hand. This is not standard RIP/OSPF interoperability.
 5. **Fragmentation and NAT (R15, R16).** Exit test is a large ping across a small MTU link, and a host behind our router reaching the Internet.
 6. **Central controller (R17, R18).** Exit test is stopping every routing process, then starting one controller that restores traffic.
+7. **Standard intra-network routing (R28, R29).** Stage 7A implements RIPv2 interoperability, followed by Stage 7B single-area point-to-point OSPFv2. Exit tests use independent FRR peers, standard packet captures, learned forwarding, withdrawals and recovery over virtual Ethernet.
+8. **BGP peering and policy (R30).** Simulate multiple autonomous systems over virtual links. Exchange IPv4 unicast eBGP routes with FRR, inspect AS paths, reject loops, and prove policy/withdrawal changes affect the Go FIB and endpoint traffic.
+9. **Wi-Fi access-point forwarding (R31).** Connect a wireless client to the router laptop's lab SSID, initially opposite a virtual host with static addresses. Exit tests prove forwarding through goodnews, failure/recovery, and restored radio/management settings. DHCP and Internet sharing are follow-up extensions.
+
+Stages 7–9 are planned work. Their scope, prerequisites, and completion evidence
+are in [docs/future-stages.md](docs/future-stages.md). Stages 7 and 8 need only
+virtual links; Stage 9 needs a real AP-capable radio and client for its hardware
+gate. The first isolated Wi-Fi lab depends on Stages 2/3, not on BGP; Internet
+sharing additionally depends on Stage 5 NAT. Stage 3 physical acceptance remains
+pending independently of these later milestones.
 
 ## How to learn from it
 
@@ -228,19 +242,30 @@ Build and review small working checkpoints, starting with Stage 1. Each lab expl
 - [x] Config schema: versioned JSON using the Go standard library. `lab/stage1.json` is the example. Interfaces carry logical names, addresses, MTUs and device attachments; routes carry prefix, interface and optional next hop; observability and protections have separate sections. Unknown fields and invalid or duplicate values are rejected.
 - [x] Stage 1 observability: one terminal JSONL record per ingress packet, correlated generated-packet records, JSONL counter snapshots, and raw-IP pcaps per interface. `goodnews show` uses read-only HTTP under `/v1/` over an owner-only filesystem Unix socket. Future subsystem views explicitly report not enabled.
 - [x] Stage 1 test harness: Go 1.27.3, standard library plus pinned x/sys. Unit/race/vet/fuzz checks are unprivileged; `lab/acceptance.py` runs networking checks as root. Setup needs CAP_NET_ADMIN, namespace switching CAP_SYS_ADMIN, and crafting CAP_NET_RAW. Crafted bytes use AF_PACKET rather than AF_INET to preserve invalid checksums.
-- [ ] Stage 1 empirical gate: run the TUN/corruption/namespace restoration and full ping/traceroute acceptance on the privileged Ubuntu host. Record results in `docs/verification.md`; no passing network result is claimed until this runs.
+- [x] Stage 1 empirical gate: TUN/corruption/namespace restoration and full ping/traceroute acceptance passed on a privileged GitHub-hosted Ubuntu 24.04 runner. `docs/verification.md` links the passing hosted run and retained evidence.
 - [x] Stage 2 implementation: Ethernet II/AF_PACKET driver, ARP cache (60-second expiry, three one-second attempts), bounded queues, Ethernet pcaps, `show arp`, and `badnews` link/delay/loss/corruption/clear controls. `docs/stage2.md` defines behavior and limits. Cost changes become routing inputs in Stage 4.
-- [ ] Stage 2 empirical gate: run `make integration2` on the privileged Ubuntu host and retain the veth/ARP/capture/impairment evidence. Passing unit tests do not close this gate.
-- [ ] Stage 3: configure physical ports without kernel addresses, exclude them from NetworkManager, disable relevant offloads, and record settings for restoration.
-- [ ] Stage 4: specify protocol 253 messages, timers, sequence numbers, aging, DV/LS selection and a statically registered Go routing-plugin interface before implementation. Do not use dynamic shared-library loading.
+- [x] Stage 2 empirical gate: `make integration2` passed on a privileged GitHub-hosted Ubuntu 24.04 runner with veth/ARP/capture/impairment and stopped-router evidence retained. See `docs/verification.md` for the passing run.
+- [x] Stage 3 implementation: explicit selection of unused physical Ethernet ports, a dedicated router namespace without kernel addresses, a temporary NetworkManager exclusion, offload/sysctl snapshots, rollback and restoration, and Linux/Windows/macOS endpoint instructions. See `docs/stage3.md`.
+- [x] Stage 3 hybrid setup: explicitly select `MODE=hybrid` with one physical `RIGHT_DEVICE`; create a virtual left host and cable on the router laptop. Preserve physical-port checks, namespace/cable identities, rollback and restoration. Cable carrier never selects the topology. Both physical and hybrid lifecycle fixtures passed hosted CI; see `docs/verification.md` and the two-laptop procedure in `docs/stage3.md`. This does not close the full physical gate.
+- [ ] Stage 3 empirical gate: verify the Windows/macOS physical pairing and a physical Linux endpoint, retain ping/traceroute/ARP/TTL/checksum evidence, and prove stopped-router failure and settings restoration. Synthetic lifecycle CI does not close this gate.
+- [x] CI implementation: build both binaries, run race/vet/source/workflow/Python/fuzz checks, all four namespace acceptance targets, privileged artifact ownership, and PostgreSQL JSONL import verification. See `docs/ci.md` for enabling the required repository check after the first hosted run.
+- [x] Stage 4 implementation: bounded protocol 253 messages, persistent restart incarnations, hello/dead timers, vector/LSA aging, DV/LS selection, statically registered Go routing interface, algorithm traces, runtime costs, and six-router virtual Ethernet lifecycle/acceptance. See [docs/stage4.md](docs/stage4.md), [design](docs/stage4-design.md), and [protocol](docs/stage4-protocol.md).
+- [x] Stage 4 empirical gate: `make integration4` passed for both DV and LS on privileged GitHub-hosted Ubuntu, with convergence, ping/traceroute, capture, failure, restart, partition, and cleanup evidence retained. See [the verification record](docs/verification.md) for the passing run. Stage 3 physical acceptance stays pending.
 - [ ] Stage 5: specify NAT transports, checksum updates, state expiry and fragmentation interaction before implementation.
 - [ ] Stage 6: specify flow matches, actions, priorities and replacement behavior. Use a separate management connection so reaching the controller does not depend on installed data-plane routes.
+- [ ] Stage 7A: specify and implement RIPv2 wire/transport/metric/timer behavior, then verify bidirectional interoperability, withdrawals and forwarding with FRR over virtual Ethernet.
+- [ ] Stage 7B: specify the supported OSPFv2 area-0 point-to-point profile, neighbor/database state machines, LSA reliability/aging and route publication, then verify interoperability and failure recovery with FRR.
+- [ ] Stage 8: design the Go BGP speaker's TCP/control-plane attachment, capabilities, attributes, next-hop resolution, import/export policy and route preference; prove multi-AS interoperability and forwarding with FRR.
+- [ ] Stage 9: design AP-radio/namespace ownership, association/security, static addressing, Go forwarding, management isolation and restoration; test real wireless clients. Check existing AP capability before considering an extra adapter. DHCP and Internet NAT are subsequent extensions.
 
 ## Open decisions and later projects
 
 - [x] Stage 3 design: use built-in Ethernet plus a USB Ethernet adapter. Confirm device names and adapter readiness at the Stage 3 gate.
 - [x] Windows and Mac are available as lab hosts for the planned physical stage.
 - [ ] Optional exercise, rewrite longest prefix match or Dijkstra by hand against the agent's tests
-- [ ] Decide whether to write the BGP speaker later in Go or Ruby
+- [x] BGP belongs to planned Stage 8, with a Go speaker and FRR as an independent peer; it is no longer an unnamed follow-up project.
 
-Two later projects build on this one. The first is IP addressing and DHCP, where our router hands the Windows laptop its address, mask and gateway. The second is a small BGP speaker that opens a session with an FRR router and reads real AS paths.
+An additional IP addressing/DHCP exercise can follow the statically addressed
+Wi-Fi lab, letting goodnews supply client addresses, masks and gateways. BGP,
+RIPv2/OSPFv2 interoperability, and Wi-Fi forwarding now have explicit numbered
+milestones in [the later-stage roadmap](docs/future-stages.md).

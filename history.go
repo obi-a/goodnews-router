@@ -14,6 +14,7 @@ type RunInfo struct {
 	ArtifactDirectory string          `json:"artifact_directory"`
 	Interfaces        []Interface     `json:"interfaces"`
 	Protections       map[string]bool `json:"protections"`
+	Routing           *RoutingConfig  `json:"routing,omitempty"`
 }
 
 type FIBSnapshot struct {

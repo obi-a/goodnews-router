@@ -260,7 +260,7 @@ func (m *Model) Lines(s *Store, width, height int) []string {
 		notice = "Legacy run: unrecorded historical state is shown as unavailable"
 	}
 	if notice == "" {
-		notice = "Space pause | Home first | End live/latest | r reconnect | q quit | wheel scroll"
+		notice = "t router inspector | Space pause | Home first | End live | r reconnect | q quit"
 	}
 	footer := "Up/Down select | PgUp/PgDn history | Enter details | Esc back | Tab focus"
 	if width < 80 || height < 24 {

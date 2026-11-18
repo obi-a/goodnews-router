@@ -86,7 +86,15 @@ func (r *Runtime) ManagementHandler() http.Handler {
 	})
 	for _, subsystem := range []string{"neighbors", "lsdb"} {
 		mux.HandleFunc("/v1/"+subsystem, func(w http.ResponseWriter, req *http.Request) {
-			write(w, req, map[string]any{"enabled": false, "subsystem": subsystem, "message": "requires Stage 4 routing protocols"}, http.StatusNotImplemented)
+			if r.routing != nil && (subsystem == "neighbors" || r.Engine.Config.Routing.Algorithm == "ls") {
+				if subsystem == "neighbors" {
+					write(w, req, map[string]any{"enabled": true, "algorithm": r.Engine.Config.Routing.Algorithm, "neighbors": r.routing.Neighbors(time.Now())}, http.StatusOK)
+				} else {
+					write(w, req, map[string]any{"enabled": true, "records": r.routing.Database()}, http.StatusOK)
+				}
+				return
+			}
+			write(w, req, map[string]any{"enabled": false, "subsystem": subsystem, "message": "neighbors require routing; lsdb requires the ls algorithm"}, http.StatusNotImplemented)
 		})
 	}
 	return mux

@@ -1,0 +1,189 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  checks:
+    name: Build and checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Check pseudo-terminal availability
+        run: python3 -c 'import os,pty; a,b=pty.openpty(); os.close(a); os.close(b)'
+      - name: Build and check all source packages
+        run: |
+          make check build TESTFLAGS='-race -count=1 -coverprofile=coverage.out -covermode=atomic' 2>&1 | tee checks.log
+          ./bin/goodnews check --config lab/stage1.json
+          ./bin/goodnews check --config lab/stage2.json
+          python3 -B lab/stage4.py generate --directory "$RUNNER_TEMP/stage4-configs"
+          for config in "$RUNNER_TEMP"/stage4-configs/*.json; do ./bin/goodnews check --config "$config"; done
+      - name: Validate workflow
+        run: |
+          GOBIN="$RUNNER_TEMP/tools" go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          PATH="$RUNNER_TEMP/tools:$PATH" make workflow-lint
+      - name: Archive checks and binaries
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/evidence"
+          for path in coverage.out checks.log bin; do
+            if [[ -e "$path" ]]; then cp -a "$path" "$RUNNER_TEMP/evidence/"; fi
+          done
+          tar -czf "$RUNNER_TEMP/checks.tar.gz" -C "$RUNNER_TEMP/evidence" .
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: checks
+          path: ${{ runner.temp }}/checks.tar.gz
+          retention-days: 14
+          if-no-files-found: error
+
+  fuzz:
+    name: Fuzz
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - run: make fuzz 2>&1 | tee fuzz.log
+      - name: Archive fuzz diagnostics
+        if: always()
+        run: |
+          paths=()
+          if [[ -f fuzz.log ]]; then paths+=(fuzz.log); fi
+          if [[ -d testdata/fuzz ]]; then paths+=(testdata/fuzz); fi
+          if (( ${#paths[@]} )); then
+            tar -czf "$RUNNER_TEMP/fuzz.tar.gz" "${paths[@]}"
+          else
+            tar -czf "$RUNNER_TEMP/fuzz.tar.gz" --files-from /dev/null
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: fuzz
+          path: ${{ runner.temp }}/fuzz.tar.gz
+          retention-days: 14
+          if-no-files-found: error
+
+  networking:
+    name: Stage ${{ matrix.stage }} acceptance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - stage: 1
+            target: integration
+          - stage: 2
+            target: integration2
+          - stage: 3
+            target: integration3
+          - stage: 4
+            target: integration4
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: goodnews
+          POSTGRES_PASSWORD: goodnews
+          POSTGRES_DB: goodnews
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U goodnews"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Install lab prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential iproute2 procps ethtool iputils-ping traceroute tcpdump python3 postgresql-client
+          sudo -n true
+      - name: Verify TUN availability
+        if: matrix.stage == 1
+        run: |
+          if [[ ! -c /dev/net/tun ]]; then sudo modprobe tun; fi
+          test -c /dev/net/tun
+      - name: Run networking acceptance
+        timeout-minutes: 8
+        env:
+          ACCEPTANCE_TARGET: ${{ matrix.target }}
+        run: make "$ACCEPTANCE_TARGET" 2>&1 | tee acceptance.log
+      - name: Test privileged artifact ownership
+        if: matrix.stage == 1
+        run: |
+          go test -race -c -o "$RUNNER_TEMP/owner.test" .
+          sudo "$RUNNER_TEMP/owner.test" -test.run '^TestObserverSudoOwnership$' -test.v 2>&1 | tee ownership.log
+      - name: Verify PostgreSQL export
+        if: matrix.stage == 1
+        env:
+          PGPASSWORD: goodnews
+        run: |
+          python3 -B lab/verify_postgres.py --evidence artifacts --database 'postgresql://goodnews@localhost:5432/goodnews' | tee postgres.log
+      - name: Archive acceptance evidence
+        if: always()
+        run: |
+          paths=()
+          for path in artifacts acceptance.log ownership.log postgres.log; do
+            if [[ -e "$path" ]]; then paths+=("$path"); fi
+          done
+          if (( ${#paths[@]} )); then
+            sudo tar -czf "$RUNNER_TEMP/acceptance.tar.gz" "${paths[@]}"
+          else
+            tar -czf "$RUNNER_TEMP/acceptance.tar.gz" --files-from /dev/null
+          fi
+          sudo chown "$(id -u):$(id -g)" "$RUNNER_TEMP/acceptance.tar.gz"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: stage-${{ matrix.stage }}-acceptance
+          path: ${{ runner.temp }}/acceptance.tar.gz
+          retention-days: 14
+          if-no-files-found: error
+
+  required:
+    name: CI required
+    if: always()
+    needs: [checks, fuzz, networking]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require every job to pass
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 -c 'import json,os; results=json.loads(os.environ["RESULTS"]); assert all(job["result"] == "success" for job in results.values()), results'

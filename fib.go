@@ -12,6 +12,8 @@ type Route struct {
 	Interface string       `json:"interface"`
 	NextHop   netip.Addr   `json:"next_hop,omitempty"`
 	Origin    string       `json:"origin"`
+	Metric    uint32       `json:"metric,omitempty"`
+	Hops      uint8        `json:"hops,omitempty"`
 }
 
 // Table is immutable after construction. Readers never wait for the control plane.

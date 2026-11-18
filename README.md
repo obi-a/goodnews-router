@@ -2,8 +2,15 @@
 
 A small IPv4 router for learning the network and control planes in Kurose and
 Ross. Stage 1 forwards over Linux TUN devices; Stage 2 adds Ethernet over
-veth, ARP, and runtime fault controls. Distributed routing, fragmentation,
-NAT, and a controller are later stages.
+veth, ARP, and runtime fault controls. Stage 4 adds distance vector and link
+state using a custom teaching protocol over a six-router virtual Ethernet lab.
+Fragmentation/NAT and a controller remain Stages 5–6. Planned Stages 7–9 add
+RIPv2/OSPFv2 interoperability, BGP, and Wi-Fi access-point forwarding.
+
+Stage 3 adds reversible setup for two physical Ethernet ports, or explicit
+hybrid mode with one physical port and one virtual endpoint. Linux, Windows,
+and macOS endpoint instructions are included. Physical hardware acceptance is
+a separate gate; Wi-Fi can remain connected for management.
 
 The router owns its addresses in Go. It does not assign them to kernel
 interfaces. The lab disables kernel forwarding, and traffic stops when the
@@ -13,6 +20,14 @@ process stops.
 
 Choose a guide to inspect the router:
 
+- [Later-stage roadmap](docs/future-stages.md): planned standard routing
+  protocols, BGP policy labs, and Wi-Fi, with prerequisites and exit tests.
+- [Stage 4 routing protocols](docs/stage4.md): discover neighbors, compare
+  Bellman–Ford with Dijkstra, and reroute around failures using virtual cables.
+- [Stage 3 physical Ethernet lab](docs/stage3.md): use two laptops with a virtual
+  left endpoint, or three laptops with two physical endpoints, then restore settings.
+- [Continuous integration](docs/ci.md): automated coverage, saved evidence,
+  local checks, and the required merge check.
 - [Stage 2 Ethernet lab](docs/stage2.md): route over virtual Ethernet cables,
   watch ARP, and change delay, loss, corruption, and link state with `badnews`.
 
@@ -152,7 +167,8 @@ longest-prefix-first order. Generated replies have their own IDs and routes.
 
 The HTTP API runs on an owner-only Unix socket. `show` provides read-only
 `interfaces`, `routes`, `counters`, `arp`, and `impairments` views. ARP requires
-an Ethernet interface; `neighbors` and `lsdb` require Stage 4. Only the
+an Ethernet interface; `neighbors` requires routing and `lsdb` requires the
+link-state algorithm. Only the
 `/v1/impairments` endpoint accepts changes, through `badnews`. Without `--json`,
 output is indented JSON. The interface view shows protections and Ethernet MACs.
 
@@ -196,7 +212,7 @@ to false. Omitted switches default to true. Length checks always remain active.
 controls. Follow the [Stage 2 guide](docs/stage2.md) for commands and expected
 observations. The [Stage 1 fault exercises](docs/stage1-experiments.md#stage-1-faults-and-badnews)
 remain useful for malformed packets, TTL, missing routes, and protection switches.
-Routing-cost experiments apply when Stage 4 adds routing protocols.
+Stage 4 adds runtime routing-cost changes; see its guide for the virtual lab.
 
 ## Full acceptance check
 

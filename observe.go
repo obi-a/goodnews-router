@@ -14,11 +14,11 @@ import (
 // Observer is synchronous on purpose: educational traces must not silently lose
 // records to an asynchronous logging queue.
 type Observer struct {
-	trace, counters, fib *os.File
-	captures             map[string]*os.File
-	Directory            string
-	info                 RunInfo
-	versions             map[uint64]bool
+	trace, counters, fib, routing *os.File
+	captures                      map[string]*os.File
+	Directory                     string
+	info                          RunInfo
+	versions                      map[uint64]bool
 }
 
 func OpenObserver(c Config) (_ *Observer, err error) {
@@ -46,6 +46,10 @@ func OpenObserver(c Config) (_ *Observer, err error) {
 	o.info = RunInfo{Version: 1, RunID: filepath.Base(dir), RouterID: c.RouterID,
 		StartedAt: time.Now().UTC(), ArtifactDirectory: absolute, Interfaces: append([]Interface(nil), c.Interfaces...),
 		Protections: map[string]bool{"verify_ipv4_checksum": enabled(c.Protections.VerifyIPv4Checksum), "decrement_ttl": enabled(c.Protections.DecrementTTL)}}
+	if c.Routing != nil {
+		effective := c.Routing.Effective()
+		o.info.Routing = &effective
+	}
 	defer func() {
 		if err != nil {
 			_ = o.Close()
@@ -59,6 +63,11 @@ func OpenObserver(c Config) (_ *Observer, err error) {
 	}
 	if o.fib, err = owner.create(filepath.Join(dir, "fib.jsonl")); err != nil {
 		return nil, err
+	}
+	if c.Routing != nil {
+		if o.routing, err = owner.create(filepath.Join(dir, "routing.jsonl")); err != nil {
+			return nil, err
+		}
 	}
 	manifest, err := json.MarshalIndent(o.info, "", "  ")
 	if err != nil {
@@ -154,6 +163,13 @@ func (o *Observer) Counters(record CounterSnapshot) error {
 	return json.NewEncoder(o.counters).Encode(record)
 }
 
+func (o *Observer) Routing(record RoutingEvent) error {
+	if o.routing == nil {
+		return fmt.Errorf("routing observation is not enabled")
+	}
+	return json.NewEncoder(o.routing).Encode(record)
+}
+
 func (o *Observer) RunInfo() RunInfo { return o.info }
 
 // RecordFIB runs on the observation worker, before any trace using this version.
@@ -177,6 +193,9 @@ func (o *Observer) Close() error {
 	}
 	if o.fib != nil {
 		errs = append(errs, o.fib.Close())
+	}
+	if o.routing != nil {
+		errs = append(errs, o.routing.Close())
 	}
 	for _, f := range o.captures {
 		errs = append(errs, f.Close())
