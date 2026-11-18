@@ -86,6 +86,11 @@ class HybridLinux(FakeLinux):
     def endpoint_routes(self, namespace, device):
         return copy.deepcopy(self.defaults[namespace])
 
+    def veth_tag(self, device, namespace, alias):
+        self.fail("tag")
+        self.devices[namespace][device]["ifalias"] = alias
+        self.fail("tag_after_set")
+
     def veth_peer_ifindex(self, device, namespace):
         link = self.port(device, namespace)
         return link.get("link_index", link["ifindex"])
@@ -239,6 +244,33 @@ class HybridTests(unittest.TestCase):
                 patch("stage3.run", return_value="NIC statistics:\n"):
             with self.assertRaisesRegex(LabError, "cannot identify veth peer"):
                 linux.veth_peer_ifindex("left0", "test-r1")
+
+    def ignore_creation_alias(self):
+        original = self.backend.veth_create
+
+        def create(router, device, host, peer, alias):
+            original(router, device, host, peer, alias)
+            self.backend.devices[router][device].pop("ifalias", None)
+
+        self.backend.veth_create = create
+
+    def test_alias_is_explicitly_applied_after_creation(self):
+        self.ignore_creation_alias()
+        self.up()
+        manifest = self.lab.check()
+        self.assertTrue(manifest["virtual"]["tagged"])
+        self.assertEqual(self.backend.port("left0", self.lab.namespace)["ifalias"], manifest["virtual"]["alias"])
+        self.lab.down()
+        self.assert_restored()
+
+    def test_failed_tagging_restores_physical_port(self):
+        self.ignore_creation_alias()
+        for operation in ("tag", "tag_after_set"):
+            with self.subTest(operation=operation):
+                self.backend.failure = operation
+                with self.assertRaisesRegex(LabError, "injected"):
+                    self.up()
+                self.assert_restored()
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import signal
 import subprocess
+import sys
 import tempfile
 
 from acceptance import checksum, command, wait_for
@@ -185,6 +186,7 @@ def main():
                                               "--fixture", str(directory), "--mode", mode],
                                              stdout=output, stderr=output, timeout=180)
                 if process.returncode:
+                    print((directory / "fixture.log").read_text(), file=sys.stderr, flush=True)
                     raise LabError(f"{mode} fixture failed; inspect {directory / 'fixture.log'}")
                 print(f"Stage 3 {mode} namespace lifecycle and Linux endpoint regression passed.", flush=True)
             finally:

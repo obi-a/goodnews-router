@@ -248,11 +248,14 @@ class Linux:
                    f"net.ipv6.conf.{device}.disable_ipv6", namespace=namespace) == "0\n1"
 
     def veth_create(self, router, device, host, peer, alias):
-        # Both ends are created atomically inside owned namespaces. The alias
-        # also identifies our cable if setup is interrupted before journaling
-        # its MACs/ifindices.
+        # Both ends are created atomically inside owned namespaces. Request an
+        # alias here too, but explicitly apply it after journaling identities:
+        # some kernels don't retain this attribute during veth creation.
         run("ip", "link", "add", "name", device, "alias", alias, "type", "veth",
             "peer", "name", peer, "netns", host, namespace=router)
+
+    def veth_tag(self, device, namespace, alias):
+        run("ip", "link", "set", "dev", device, "alias", alias, namespace=namespace)
 
     def veth_peer_ifindex(self, device, namespace):
         link = self.port(device, namespace)
@@ -362,6 +365,7 @@ class Lab:
             virtual = {"namespace": self.host_namespace, "namespace_inode": None,
                        "router_device": "left0", "host_device": "gn0", "subnet": str(networks[0]),
                        "alias": "goodnews-stage3-" + secrets.token_hex(16),
+                       "tagged": False,
                        "router_identity": None, "host_identity": None,
                        "router_ifindex": None, "host_ifindex": None}
         return {"version": 1, "namespace": self.namespace, "mode": mode, "virtual": virtual,
@@ -402,7 +406,12 @@ class Lab:
         a, b = router_links.get(virtual["router_device"]), host_links.get(virtual["host_device"])
         if a is None and b is None:
             return
-        if (a is None or b is None or a.get("ifalias") != virtual["alias"]
+        # A failed tag operation can be recovered using already-journaled
+        # identities. A ready cable must always retain its ownership alias.
+        untagged_setup = (a is not None and a.get("ifalias") in (None, "")
+                          and manifest["phase"] != "ready" and not virtual.get("tagged", True)
+                          and virtual["router_identity"] is not None and virtual["host_identity"] is not None)
+        if (a is None or b is None or (a.get("ifalias") != virtual["alias"] and not untagged_setup)
                 or any(link.get("linkinfo", {}).get("info_kind") != "veth" for link in (a, b))):
             details = json.dumps({"expected_alias": virtual["alias"], "router": a, "host": b}, sort_keys=True)
             raise LabError(f"virtual cable identity changed; refusing to touch it: {details}")
@@ -438,6 +447,9 @@ class Lab:
                                          ("host", host, virtual["host_device"])):
             virtual[side + "_identity"] = self.backend.identity(device, namespace)
             virtual[side + "_ifindex"] = self.backend.port(device, namespace)["ifindex"]
+        self.save(manifest)
+        self.backend.veth_tag(virtual["router_device"], self.namespace, virtual["alias"])
+        virtual["tagged"] = True
         self.save(manifest)
         for namespace, device in ((self.namespace, virtual["router_device"]), (host, virtual["host_device"])):
             self.backend.isolate_port(device, namespace)
